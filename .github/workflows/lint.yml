@@ -1,0 +1,61 @@
+name: lint
+
+on:
+  push: {branches: [main]}
+  pull_request:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          sudo apt-get install -y --no-install-recommends shellcheck
+          shellcheck --version
+          shellcheck -S warning bootstrap.sh
+
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: validate compose
+        run: |
+          cp .env.example .env
+          docker compose --env-file .env --project-directory . -f compose/core.yml config >/dev/null
+      - name: build dojo image
+        run: docker build -t ninjarr-dojo-ci ./dojo
+      - name: build recyclarr image
+        run: docker build -t ninjarr-recyclarr-ci ./recyclarr
+
+  json:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: validate app config json
+        run: |
+          shopt -s nullglob
+          for f in config/languages-profiles/*.json; do jq . "$f" >/dev/null; done
+
+  dojo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: syntax-check the dojo backend
+        run: python3 -m py_compile dojo/app.py
+      - name: validate recyclarr preset templates
+        run: |
+          pip install --quiet pyyaml
+          python3 -c "
+          import glob, sys, yaml
+          files = glob.glob('dojo/recyclarr-templates/**/*.yml', recursive=True)
+          assert files, 'no template files found'
+          for f in files:
+              with open(f) as fh:
+                  yaml.safe_load(fh)
+          print(f'{len(files)} template(s) OK')
+          "

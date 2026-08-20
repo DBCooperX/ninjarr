@@ -1,0 +1,118 @@
+x-common: &common
+  restart: unless-stopped
+  environment: &env
+    PUID: ${PUID}
+    PGID: ${PGID}
+    TZ: ${TZ}
+
+networks:
+  ninjarr:
+    driver: bridge
+
+services:
+
+  prowlarr:
+    <<: *common
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    networks: [ninjarr]
+    ports: ["9696:9696"]
+    volumes:
+      - ${APPDATA}/prowlarr:/config
+
+  sabnzbd:
+    <<: *common
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: sabnzbd
+    networks: [ninjarr]
+    ports: ["8080:8080"]
+    volumes:
+      - ${APPDATA}/sabnzbd:/config
+      - ${INCOMPLETE}:/data/usenet/incomplete
+      - ${DOWNLOADS}:/data/usenet/complete
+
+  sonarr:
+    <<: *common
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    networks: [ninjarr]
+    ports: ["8989:8989"]
+    volumes:
+      - ${APPDATA}/sonarr:/config
+      - ${DOWNLOADS}:/data/usenet/complete
+      - ${MEDIA}:/data/media
+    depends_on: [sabnzbd, prowlarr]
+
+  radarr:
+    <<: *common
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    networks: [ninjarr]
+    ports: ["7878:7878"]
+    volumes:
+      - ${APPDATA}/radarr:/config
+      - ${DOWNLOADS}:/data/usenet/complete
+      - ${MEDIA}:/data/media
+    depends_on: [sabnzbd, prowlarr]
+
+  bazarr:
+    <<: *common
+    image: lscr.io/linuxserver/bazarr:latest
+    container_name: bazarr
+    networks: [ninjarr]
+    ports: ["6767:6767"]
+    volumes:
+      - ${APPDATA}/bazarr:/config
+      - ${MEDIA}:/data/media
+    depends_on: [sonarr, radarr]
+
+  # Built locally, not pulled — there's no upstream image for this one. Only ever writes its own
+  # /config/keys.json and the shared recyclarr config — downloads/media/incomplete are mounted
+  # read-only, for disk-space reporting only — so, like Seerr, it doesn't need PUID/PGID; it
+  # just runs as its own container's default user.
+  dojo:
+    build: ./dojo
+    container_name: dojo
+    restart: unless-stopped
+    networks: [ninjarr]
+    ports: ["1337:5000"]
+    volumes:
+      - ${APPDATA}/dojo:/config
+      # shared with the recyclarr container's own /config — writing recyclarr.yml and touching
+      # .trigger here is how the preset picker reaches it, no docker socket needed
+      - ${APPDATA}/recyclarr:/recyclarr-config
+      # read-only — disk-space reporting only, same paths sonarr/radarr/sabnzbd already mount
+      - ${DOWNLOADS}:/downloads:ro
+      - ${MEDIA}:/media:ro
+      - ${INCOMPLETE}:/incomplete:ro
+    depends_on: [sonarr, radarr, prowlarr, sabnzbd, bazarr, recyclarr]
+
+  # Builds on the upstream recyclarr image (runs as uid 1000 internally, like Seerr — its
+  # /config must be owned 1000:1000, not PUID:PGID) with a swapped entrypoint that runs both
+  # the image's own CRON_SCHEDULE sync and a trigger-file watch, so a Dojo-picked preset syncs
+  # within a few seconds instead of waiting for the next scheduled run.
+  recyclarr:
+    build: ./recyclarr
+    container_name: recyclarr
+    restart: unless-stopped
+    networks: [ninjarr]
+    environment:
+      TZ: ${TZ}
+      CRON_SCHEDULE: "@weekly"
+    volumes:
+      - ${APPDATA}/recyclarr:/config
+    depends_on: [sonarr, radarr]
+
+  # Seerr runs as the node user (uid 1000) internally and ignores PUID/PGID.
+  # Forcing them breaks it. Its config dir must be owned 1000:1000.
+  seerr:
+    image: ghcr.io/seerr-team/seerr:latest
+    container_name: seerr
+    init: true
+    restart: unless-stopped
+    networks: [ninjarr]
+    ports: ["5055:5055"]
+    environment:
+      TZ: ${TZ}
+    volumes:
+      - ${APPDATA}/seerr:/app/config

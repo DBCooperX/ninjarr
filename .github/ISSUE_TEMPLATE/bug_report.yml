@@ -1,0 +1,29 @@
+name: Something broke
+description: bootstrap.sh failed, or the stack came up wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations: {required: true}
+  - type: textarea
+    id: log
+    attributes:
+      label: Relevant lines from .ninjarr.log
+      description: Redact API keys before pasting.
+      render: shell
+  - type: input
+    id: os
+    attributes: {label: OS, placeholder: "Debian 13 / Ubuntu 24.04 / ..."}
+    validations: {required: true}
+  - type: input
+    id: docker
+    attributes: {label: Docker version, placeholder: "docker version --format '{{.Server.Version}}'"}
+  - type: dropdown
+    id: storage
+    attributes:
+      label: Where does your media live
+      options: [Local disk, NFS, SMB/CIFS, Something else]
+    validations: {required: true}

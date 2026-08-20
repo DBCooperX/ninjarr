@@ -1,0 +1,8 @@
+.env
+.ninjarr.log
+*.local.yml
+config/secrets/
+stack.html
+__pycache__/
+*.pyc
+.DS_Store
