@@ -556,6 +556,135 @@ def radarr_search_missing():
     return _search_missing("radarr", "RAD_KEY", "MissingMoviesSearch", "movies")
 
 
+# Each app self-diagnoses real problems (indexer down, no download client, missing languages
+# profile, disk full) via its own health endpoint — none of that surfaced in Dojo before this,
+# even though it's free, read-only, and often more actionable than the stats already shown.
+def _arr_health(service_id):
+    svc = SERVICES[service_id]
+    key = load_keys().get(svc["key"])
+    if not key:
+        return []
+    base = f"http://{svc['host']}:{svc['port']}"
+    path = "/api/v1/health" if service_id == "prowlarr" else "/api/v3/health"
+    r = safe_get(f"{base}{path}", headers={"X-Api-Key": key})
+    if r is None:
+        return []
+    try:
+        items = r.json()
+    except ValueError:
+        return []
+    return [
+        {"app": svc["label"], "severity": item.get("type", "warning"), "message": item.get("message", "")}
+        for item in items
+    ]
+
+
+def _bazarr_health():
+    svc = SERVICES["bazarr"]
+    key = load_keys().get(svc["key"])
+    if not key:
+        return []
+    base = f"http://{svc['host']}:{svc['port']}"
+    r = safe_get(f"{base}/api/system/health", headers={"X-API-KEY": key})
+    if r is None:
+        return []
+    try:
+        items = r.json().get("data", [])
+    except ValueError:
+        return []
+    # Bazarr's own health check has no severity levels — everything it reports is worth fixing
+    return [{"app": "Bazarr", "severity": "warning", "message": item.get("issue") or item.get("object", "")} for item in items]
+
+
+def _sabnzbd_health():
+    svc = SERVICES["sabnzbd"]
+    key = load_keys().get(svc["key"])
+    if not key:
+        return []
+    base = f"http://{svc['host']}:{svc['port']}"
+    r = safe_get(f"{base}/api", params={"mode": "warnings", "apikey": key, "output": "json"})
+    if r is None:
+        return []
+    try:
+        warnings = r.json().get("warnings", [])
+    except ValueError:
+        return []
+    return [{"app": "SABnzbd", "severity": "warning", "message": w} for w in warnings]
+
+
+@app.route("/api/health")
+def health():
+    issues = []
+    for service_id in ("sonarr", "radarr", "prowlarr"):
+        issues.extend(_arr_health(service_id))
+    issues.extend(_bazarr_health())
+    issues.extend(_sabnzbd_health())
+    return jsonify(issues)
+
+
+# Discord is the one notification target wired here — a single well-known, webhook-only
+# provider, same "cover the common case simply" choice as the Generic Newznab indexer form.
+# Sonarr/Radarr share the same notification schema; Bazarr's notifications run on Apprise
+# provider URLs instead, a different enough mechanism to leave for a separate pass.
+def _wire_discord(service_id, key_name, webhook_url):
+    svc = SERVICES[service_id]
+    key = load_keys().get(key_name)
+    if not key:
+        return f"{svc['label']}'s API key isn't available yet — try again shortly."
+    base = f"http://{svc['host']}:{svc['port']}"
+    headers = {"X-Api-Key": key}
+    try:
+        schema_resp = requests.get(f"{base}/api/v3/notification/schema", headers=headers, timeout=TIMEOUT)
+        schema_resp.raise_for_status()
+        schema = next((s for s in schema_resp.json() if s.get("implementation") == "Discord"), None)
+        if not schema:
+            return f"{svc['label']} has no Discord notification template — check its version."
+
+        schema["name"] = "ninjarr-discord"
+        schema["onGrab"] = True
+        schema["onDownload"] = True
+        schema["onHealthIssue"] = True
+        for field in schema.get("fields", []):
+            if field.get("name") == "webHookUrl":
+                field["value"] = webhook_url
+
+        # idempotent: update the existing ninjarr-created notification instead of piling up
+        # a duplicate every time this form is submitted again
+        existing_resp = requests.get(f"{base}/api/v3/notification", headers=headers, timeout=TIMEOUT)
+        existing_resp.raise_for_status()
+        existing = next((n for n in existing_resp.json() if n.get("name") == "ninjarr-discord"), None)
+
+        if existing:
+            schema["id"] = existing["id"]
+            save_resp = requests.put(f"{base}/api/v3/notification/{existing['id']}", headers=headers, json=schema, timeout=TIMEOUT)
+        else:
+            save_resp = requests.post(f"{base}/api/v3/notification", headers=headers, json=schema, timeout=TIMEOUT)
+
+        if not save_resp.ok:
+            return f"{svc['label']} rejected the webhook — double check the URL."
+        return None
+    except requests.RequestException:
+        return f"Could not reach {svc['label']}."
+
+
+@app.route("/api/notifications/discord", methods=["POST"])
+def add_discord_notification():
+    body = request.get_json(silent=True) or {}
+    webhook_url = (body.get("webhookUrl") or "").strip()
+    if not webhook_url:
+        return jsonify(ok=False, message="A webhook URL is required."), 400
+
+    errors = []
+    for service_id, key_name in (("sonarr", "SON_KEY"), ("radarr", "RAD_KEY")):
+        err = _wire_discord(service_id, key_name, webhook_url)
+        if err:
+            errors.append(err)
+
+    if errors:
+        return jsonify(ok=False, message=" / ".join(errors)), 502
+    return jsonify(ok=True, message="Discord notifications wired into Sonarr and Radarr.")
+
+
 if __name__ == "__main__":
     threading.Thread(target=watch_recyclarr_sync, daemon=True).start()
     app.run(host="0.0.0.0", port=5000)

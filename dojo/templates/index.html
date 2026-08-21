@@ -126,6 +126,15 @@
   .msg.ok{color:var(--live)}
   .msg.err{color:var(--dead)}
 
+  .health-item{
+    display:flex;gap:10px;align-items:baseline;
+    background:#0f151b;border:1px solid var(--line-soft);border-left:2px solid var(--wait);
+    border-radius:3px;padding:9px 13px;margin-bottom:8px;font-size:12.5px;
+  }
+  .health-item.error{border-left-color:var(--dead)}
+  .health-item .health-app{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--dimmer);white-space:nowrap}
+  .health-item .health-msg{color:var(--sand)}
+
   .preset-status{font-family:var(--mono);font-size:12px;color:var(--dim);margin-bottom:14px}
   .preset-status b{color:var(--sand);font-weight:500}
   .preset-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;margin-bottom:6px}
@@ -203,6 +212,11 @@
   <div class="grid" id="disk-grid" style="margin-bottom:12px"></div>
   <div class="nas-tip" id="nas-tip" style="display:none"></div>
 
+  <div id="health-section" style="display:none">
+    <div class="sec"><h2>Health</h2><div class="rule"></div></div>
+    <div id="health-list" style="margin-bottom:12px"></div>
+  </div>
+
   <div class="zone-label zone-control">
     <span class="zone-icon">&#9889;</span>
     <span class="zone-title">Controls</span>
@@ -268,6 +282,22 @@
       </div>
       <button type="submit">Add &amp; sync</button>
       <div class="msg" id="indexer-msg"></div>
+    </form>
+  </div>
+
+  <div class="sec"><h2>Notifications</h2><div class="rule"></div></div>
+  <div class="panel">
+    <h2>Discord (optional)</h2>
+    <p>Pings a Discord channel on grabs, imports, and health issues — wired into both Sonarr
+       and Radarr from one webhook URL. Skip this if you don't want it; nothing else in
+       ninjarr depends on it.</p>
+    <form id="discord-form">
+      <div>
+        <label for="f-webhook">Webhook URL</label>
+        <input id="f-webhook" name="webhookUrl" required placeholder="https://discord.com/api/webhooks/...">
+      </div>
+      <button type="submit">Wire it up</button>
+      <div class="msg" id="discord-msg"></div>
     </form>
   </div>
 
@@ -493,6 +523,55 @@ document.getElementById('indexer-form').addEventListener('submit', async (e) => 
   }
 });
 
+document.getElementById('discord-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = e.target;
+  const btn = form.querySelector('button');
+  const msg = document.getElementById('discord-msg');
+  const data = Object.fromEntries(new FormData(form).entries());
+
+  btn.disabled = true;
+  msg.textContent = 'Wiring…';
+  msg.className = 'msg';
+
+  try {
+    const res = await fetch('/api/notifications/discord', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data)
+    });
+    const out = await res.json();
+    msg.textContent = out.message;
+    msg.className = 'msg ' + (out.ok ? 'ok' : 'err');
+    if (out.ok) form.reset();
+  } catch (e) {
+    msg.textContent = 'Request failed — is the dojo backend up?';
+    msg.className = 'msg err';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function refreshHealth() {
+  const section = document.getElementById('health-section');
+  const list = document.getElementById('health-list');
+  try {
+    const res = await fetch('/api/health');
+    const issues = await res.json();
+    if (!issues.length) {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = '';
+    list.innerHTML = issues.map(i => `<div class="health-item ${i.severity === 'error' ? 'error' : ''}">
+      <span class="health-app">${escapeHtml(i.app)}</span>
+      <span class="health-msg">${escapeHtml(i.message)}</span>
+    </div>`).join('');
+  } catch (e) {
+    section.style.display = 'none';
+  }
+}
+
 async function runControlAction(url, msgEl, btns, onDone) {
   msgEl.textContent = 'Working…';
   msgEl.className = 'msg';
@@ -532,10 +611,12 @@ resyncBtn.addEventListener('click', () =>
 refreshStatus();
 refreshDisk();
 refreshStorageCheck();
+refreshHealth();
 refreshPresets();
 setInterval(refreshStatus, 15000);
 setInterval(refreshDisk, 30000);
 setInterval(refreshStorageCheck, 30000);
+setInterval(refreshHealth, 20000);
 setInterval(refreshPresets, 20000);
 </script>
 
