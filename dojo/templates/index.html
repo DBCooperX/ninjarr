@@ -1,0 +1,1339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dojo · ninjarr</title>
+<link rel="icon" type="image/png" href="/static/favicon.png">
+<!-- installable: "Add to Home Screen" opens Dojo full screen, like an app -->
+<link rel="manifest" href="/static/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+<meta name="theme-color" content="#070707">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Dojo">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+<style>
+/* Same system as the AIOStreams dashboard (near-black, neutral greys, faint white borders, Inter,
+   12px panels, labelled rail, pills) — with ninjarr's vermilion where AIOStreams uses violet. */
+:root {
+  --bg: #070707; --panel: rgba(16, 16, 16, .85); --panel-solid: #101010; --raised: #1c1c1c; --field: #0b0b0b;
+  --border: rgba(255, 255, 255, .1); --border-strong: rgba(255, 255, 255, .18);
+  --text: #e6e6e6; --text-2: #d1d1d1; --muted: #8f8f8f; --faint: #5a5a5a;
+  --accent: #f0621a; --accent-soft: rgba(240, 98, 26, .15); --accent-text: #ff9a5e;
+  --ok: #4ade80; --warn: #fbbf24; --fail: #f87171;
+  --r: 12px; --r-s: 8px; --pill: 999px;
+  --font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --top: 60px; --bottom: 0px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text-2); font: 15px/1.55 var(--font); -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hidden { display: none !important; }
+code { font: .86em var(--mono); background: var(--raised); padding: 1px 6px; border-radius: 5px; }
+
+/* layout: a labelled rail on the left, a slim top bar, content (a bottom bar on phones) */
+.shell { display: grid; grid-template-columns: 84px 1fr; min-height: 100vh; }
+.rail { position: sticky; top: 0; height: 100vh; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 18px 0 14px; border-right: 1px solid var(--border); background: var(--bg); z-index: 6; }
+.rail .logo { display: flex; flex-direction: column; align-items: center; gap: 2px; margin-bottom: 16px; }
+.rail .logo img { width: 36px; height: 36px; }
+.rail .logo small { font-size: .7rem; color: var(--faint); }
+.rail button { width: 66px; padding: 8px 0 6px; display: flex; flex-direction: column; align-items: center; gap: 3px; border: 0; border-radius: 14px; background: none; color: var(--muted); cursor: pointer; }
+.rail button svg { width: 21px; height: 21px; }
+.rail button .lbl { font-size: .7rem; font-weight: 500; letter-spacing: .01em; }
+.rail button:hover { background: var(--raised); color: var(--text); }
+.rail button[aria-current="page"] { background: var(--accent-soft); color: var(--accent-text); }
+.rail .spacer { flex: 1; }
+.content { min-width: 0; }
+.topbar { position: sticky; top: 0; z-index: 5; height: var(--top); display: flex; align-items: center; gap: 12px; padding: 0 32px; background: rgba(7, 7, 7, .88); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); }
+.topbar h1 { font-size: 1.12rem; margin: 0; font-weight: 600; flex: 1; letter-spacing: 0; }
+.fresh { font-size: .82rem; color: var(--faint); white-space: nowrap; }
+a.src { color: inherit; text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
+a.src:hover { color: var(--accent-text); text-decoration-color: currentColor; }
+.live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); margin-right: 7px; vertical-align: 1px; animation: pulse 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+.jobpill { border: 1px solid var(--border); background: var(--panel); border-radius: var(--pill); padding: 6px 13px; font-size: .84rem; cursor: pointer; white-space: nowrap; color: var(--text); }
+.jobpill[hidden] { display: none; }
+.jobpill .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); margin-right: 8px; animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
+main { padding: 26px 32px 120px; max-width: 1180px; }
+@media (max-width: 760px) {
+  :root { --top: 54px; --bottom: calc(64px + env(safe-area-inset-bottom)); }
+  .shell { grid-template-columns: 1fr; }
+  .rail { position: fixed; bottom: 0; top: auto; left: 0; right: 0; height: auto; flex-direction: row; justify-content: space-around; gap: 0; padding: 5px 6px calc(5px + env(safe-area-inset-bottom)); border-right: 0; border-top: 1px solid var(--border); }
+  .rail .logo, .rail .spacer { display: none; }
+  .rail button { width: 64px; padding: 6px 0 4px; }
+  .topbar { padding: 0 16px; }
+  .fresh { display: none; }
+  main { padding: 18px 16px 150px; }
+}
+
+h1 { font-size: 1.6rem; line-height: 1.2; margin: 6px 0 4px; font-weight: 700; color: var(--text); letter-spacing: -.01em; }
+h2 { font-size: 1.05rem; margin: 34px 0 12px; font-weight: 600; color: var(--text); }
+h3 { font-size: .96rem; margin: 0; font-weight: 600; color: var(--text); }
+p.lead { color: var(--muted); margin: 0 0 22px; max-width: 64ch; }
+.muted { color: var(--muted); }
+.small { font-size: .86rem; }
+.note { color: var(--muted); font-size: .86rem; margin: 10px 0 0; max-width: 72ch; }
+
+/* buttons and fields — pills, as in AIOStreams */
+.btn { border: 1px solid var(--border); background: var(--raised); padding: 7px 15px; border-radius: var(--pill); cursor: pointer; color: var(--text); font-weight: 500; font-size: .92rem; text-decoration: none; display: inline-block; white-space: nowrap; }
+.btn:hover { border-color: var(--border-strong); background: #242424; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.btn.primary:hover { background: #ff7228; }
+.btn.quiet { background: none; }
+.btn.plain { background: none; border-color: transparent; color: var(--muted); padding-left: 8px; padding-right: 8px; }
+.btn.plain:hover { color: var(--text); background: none; }
+.btn.danger:hover { color: var(--fail); }
+.btn:disabled { opacity: .45; cursor: default; }
+label.field { display: block; margin: 0 0 14px; }
+label.field > span { display: block; font-size: .84rem; color: var(--muted); margin-bottom: 6px; }
+input[type=text], input[type=password], input[type=number], input[type=url], input[type=email], select {
+  width: 100%; padding: 10px 12px; background: var(--field); border: 1px solid var(--border); border-radius: var(--r-s); color: var(--text);
+}
+input:focus, select:focus { border-color: rgba(255, 255, 255, .34); outline: none; box-shadow: 0 0 0 3px rgba(255, 255, 255, .06); }
+input::placeholder { color: var(--faint); }
+/* checkboxes are switches */
+.check { display: flex; gap: 12px; align-items: center; margin: 0 0 14px; cursor: pointer; }
+.check input { appearance: none; -webkit-appearance: none; flex: none; width: 36px; height: 20px; margin: 0; border-radius: var(--pill); background: var(--raised); border: 1px solid var(--border-strong); position: relative; cursor: pointer; transition: background .15s, border-color .15s; }
+.check input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); transition: transform .15s, background .15s; }
+.check input:checked { background: var(--accent); border-color: var(--accent); }
+.check input:checked::after { transform: translateX(16px); background: #fff; }
+.row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.result { font-size: .86rem; margin: 8px 0 0; min-height: 1.4em; }
+.result.ok { color: var(--ok); } .result.fail { color: var(--fail); }
+.good { color: var(--ok); } .meh { color: var(--warn); } .bad { color: var(--fail); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* loading placeholders, empty states, toasts, the confirm dialog */
+.sk { border-radius: var(--r); background: linear-gradient(90deg, #111 25%, #191919 50%, #111 75%); background-size: 200% 100%; animation: shimmer 1.3s infinite linear; }
+.sk-stack { display: flex; flex-direction: column; gap: 14px; }
+@keyframes shimmer { to { background-position: -200% 0; } }
+.empty { border: 1px dashed var(--border-strong); border-radius: var(--r); padding: 30px 24px; text-align: center; }
+.empty h3 { margin-bottom: 4px; }
+.empty p { color: var(--muted); margin: 0 auto 16px; max-width: 46ch; font-size: .92rem; }
+.empty p:last-child { margin-bottom: 0; }
+.toasts { position: fixed; right: 20px; bottom: 20px; z-index: 30; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
+.toast { pointer-events: auto; background: #161616; color: var(--text); border: 1px solid var(--border-strong); border-left: 3px solid var(--ok); border-radius: 10px; padding: 10px 14px; font-size: .9rem; width: max-content; max-width: min(380px, calc(100vw - 40px)); box-shadow: 0 10px 30px rgba(0, 0, 0, .5); animation: rise .18s ease-out; }
+.toast.t-fail { border-left-color: var(--fail); } .toast.t-info { border-left-color: var(--muted); }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+@media (max-width: 760px) { .toasts { left: 16px; right: 16px; bottom: calc(var(--bottom) + 14px); align-items: stretch; } .toast { max-width: none; } }
+@media (prefers-reduced-motion: reduce) { .sk, .jobpill .dot, .toast { animation: none; } .check input, .check input::after, .savebar { transition: none; } }
+
+/* home: verdict, chain, checks */
+.verdict { font-size: 1.75rem; font-weight: 700; margin: 0 0 4px; color: var(--text); letter-spacing: -.01em; line-height: 1.2; }
+.verdict.fail { color: var(--fail); }
+.verdict.sm { font-size: 1.3rem; }
+.chain { display: flex; align-items: center; margin: 22px 0 6px; padding: 20px 10px 14px; border: 1px solid var(--border); border-radius: var(--r); background: var(--panel); overflow-x: auto; }
+.link { flex: 1 0 110px; text-align: center; position: relative; }
+.ring { width: 54px; height: 34px; margin: 0 auto 10px; border: 4px solid var(--ok); border-radius: 18px; }
+.link.warn .ring { border-color: var(--warn); }
+.link.fail .ring { border-color: var(--fail); border-style: dashed; }
+.link.off .ring { border-color: var(--faint); }
+.link::after { content: ""; position: absolute; top: 15px; left: calc(50% + 27px); width: calc(100% - 54px); height: 4px; background: var(--border-strong); }
+.link:last-child::after { display: none; }
+a.link { text-decoration: none; color: inherit; border-radius: 12px; padding: 4px 0; }
+a.link:hover .what, a.link:focus-visible .what { color: var(--accent-text); }
+.link .what { font-weight: 600; color: var(--text); }
+.link .who { font-size: .8rem; color: var(--muted); }
+@media (max-width: 560px) {
+  .link { flex: 1 0 58px; }
+  .ring { width: 40px; height: 26px; border-width: 3px; }
+  .link::after { top: 11px; left: calc(50% + 20px); width: calc(100% - 40px); height: 3px; }
+  .link .what { font-size: .82rem; } .link .who { display: none; }
+  .verdict { font-size: 1.4rem; }
+}
+.panel, .checks { border: 1px solid var(--border); border-radius: var(--r); background: var(--panel); }
+.item { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--border); }
+.item:first-child { border-top: 0; }
+.mark { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); margin-left: 4px; box-shadow: 0 0 0 4px rgba(74, 222, 128, .12); }
+.item.warn .mark { background: var(--warn); box-shadow: 0 0 0 4px rgba(251, 191, 36, .12); }
+.item.fail .mark { background: var(--fail); box-shadow: 0 0 0 4px rgba(248, 113, 113, .14); }
+.item .detail { font-size: .86rem; color: var(--muted); }
+.task { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; align-items: center; padding: 14px 16px; border-top: 1px solid var(--border); }
+.task:first-child { border-top: 0; }
+.task p { margin: 2px 0 0; font-size: .86rem; color: var(--muted); }
+@media (max-width: 560px) { .task { grid-template-columns: 1fr; } }
+.group-title { margin: 22px 0 8px; font-weight: 600; color: var(--muted); font-size: .88rem; }
+details.more { margin-top: 30px; }
+details.more > summary { cursor: pointer; color: var(--muted); padding: 6px 0; font-size: .92rem; }
+details.more > summary:hover { color: var(--text); }
+
+/* your apps: one row each, both addresses in full */
+.applist .arow { display: grid; grid-template-columns: 200px 1fr; align-items: center; gap: 8px 16px; padding: 11px 16px; border-top: 1px solid var(--border); }
+.applist .arow:first-child { border-top: 0; }
+.aname { text-decoration: none; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.appicon { width: 22px; height: 22px; flex: none; border-radius: 6px; object-fit: contain; }
+.appicon.letter { display: inline-grid; place-items: center; background: var(--raised); color: var(--muted); font-size: .72rem; font-weight: 700; }
+.via .appicon { width: 14px; height: 14px; border-radius: 3px; margin-right: 5px; vertical-align: -3px; }
+.aname b { color: var(--text); font-weight: 600; }
+.aname span { font-size: .8rem; color: var(--faint); }
+.aname:hover b { color: var(--accent-text); }
+.alinks { display: flex; flex-wrap: wrap; gap: 8px; }
+.lk.lan { min-width: 12.5em; }
+.lk { display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px 4px 9px; border: 1px solid var(--border); border-radius: var(--pill); font: .82rem var(--mono); color: var(--text-2); text-decoration: none; white-space: nowrap; background: var(--panel-solid); transition: border-color .12s, background .12s; }
+.lk:hover { border-color: var(--border-strong); background: var(--raised); color: var(--text); }
+.lk svg { width: 13px; height: 13px; flex: none; color: var(--muted); }
+.lk.remote svg { color: var(--ok); }
+.legend { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.legend svg { width: 12px; height: 12px; vertical-align: -1px; }
+.legend.remote svg { color: var(--ok); }
+@media (max-width: 640px) {
+  .applist .arow { grid-template-columns: 1fr; gap: 8px; }
+  .alinks { justify-content: flex-start; }
+  .lk { white-space: normal; overflow-wrap: anywhere; }
+  .lk.lan { min-width: 0; }
+}
+
+/* the library in a few lines */
+.libsize { margin: -4px 0 12px; color: var(--muted); }
+.lib .lrow { display: grid; grid-template-columns: 110px 1fr auto; gap: 6px 18px; align-items: center; padding: 14px 16px; border-top: 1px solid var(--border); }
+.lib .lrow:first-child { border-top: 0; }
+.llabel { color: var(--muted); font-size: .88rem; }
+.lvalue { color: var(--text); font-weight: 500; }
+.ldetail { color: var(--muted); font-size: .84rem; margin-top: 3px; overflow-wrap: anywhere; }
+.stackbar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: var(--raised); max-width: 520px; margin: 4px 0 2px; }
+.stackbar span { display: block; height: 100%; }
+.s4k { background: var(--ok); } .sfhd { background: #a3a3a3; } .shd { background: var(--faint); } .ssd { background: var(--warn); }
+.lg { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin: 0 4px 0 6px; }
+.lg:first-child { margin-left: 0; }
+@media (max-width: 640px) { .lib .lrow { grid-template-columns: 1fr; } }
+
+/* where a stream comes from */
+.via { display: inline-block; font-size: .74rem; font-weight: 600; padding: 2px 8px; border-radius: var(--pill); white-space: nowrap; }
+.via-aiostreams { background: rgba(167, 139, 250, .14); color: #c4b5fd; }
+.via-dispatcharr { background: rgba(56, 189, 248, .13); color: #7dd3fc; }
+h3.sub { margin: 22px 0 10px; font-size: .95rem; }
+
+/* activity */
+.subnav { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; margin-bottom: 22px; }
+.seg { display: inline-flex; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: var(--pill); background: var(--panel); }
+.seg button { border: 0; background: none; color: var(--muted); padding: 5px 14px; border-radius: var(--pill); cursor: pointer; font-weight: 500; }
+.seg button[aria-pressed="true"] { background: var(--raised); color: var(--text); }
+.now { display: flex; flex-wrap: wrap; border: 1px solid var(--border); border-radius: var(--r); background: var(--panel); }
+.now > div { flex: 1 1 180px; padding: 14px 18px; border-left: 1px solid var(--border); }
+.now > div:first-child { border-left: 0; }
+@media (max-width: 560px) { .now > div { flex: 1 1 50%; border-left: 0; border-top: 1px solid var(--border); } .now > div:nth-child(-n+2) { border-top: 0; } .now > div:nth-child(even) { border-left: 1px solid var(--border); } .now b { font-size: 1.15rem; } }
+.now b { display: block; font-size: 1.35rem; color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.now span { font-size: .84rem; color: var(--muted); }
+.idle { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--r); background: var(--panel); color: var(--muted); font-size: .92rem; }
+.idle::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
+.funnel { border: 1px solid var(--border); border-radius: var(--r); background: var(--panel); padding: 8px 18px 12px; }
+.bar { display: grid; grid-template-columns: 150px 1fr 70px; gap: 14px; align-items: center; padding: 8px 0; }
+.bar .track, .bar .fill { display: block; }
+.bar .track { height: 10px; border-radius: 6px; background: var(--raised); overflow: hidden; }
+.bar .fill { height: 100%; border-radius: 6px; background: #a3a3a3; }
+.bar .fill.ok { background: var(--ok); } .bar .fill.warn { background: var(--warn); } .bar .fill.dim { background: var(--faint); }
+.bar .n { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+.bar .label { color: var(--text-2); }
+.bar .label small { display: block; color: var(--muted); font-size: .8rem; }
+@media (max-width: 560px) { .bar { grid-template-columns: 1fr 56px; } .bar .track { grid-column: 1 / -1; grid-row: 2; } }
+.list { margin: 0; padding: 0; list-style: none; }
+.list li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 16px; border-top: 1px solid var(--border); }
+.list li:first-child { border-top: 0; }
+.list .meta { color: var(--muted); font-size: .86rem; text-align: right; }
+.list .count { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.meta { color: var(--muted); }
+.timeline { list-style: none; margin: 0; padding: 0 16px; border: 1px solid var(--border); border-radius: var(--r); background: var(--panel); }
+.day { padding: 16px 0 6px; color: var(--muted); font-size: .86rem; font-weight: 600; }
+.ev { display: grid; grid-template-columns: 60px 96px 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.ev .time { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ev .kind { font-size: .84rem; font-weight: 600; }
+.k-request { color: var(--text); } .k-grab { color: var(--warn); } .k-import { color: var(--ok); }
+.k-failed, .k-deleted { color: var(--fail); }
+.ev .detail { font-size: .84rem; color: var(--muted); overflow-wrap: anywhere; }
+@media (max-width: 560px) { .ev { grid-template-columns: auto 1fr; } .ev .kind { grid-column: 2; } .ev .body { grid-column: 1 / -1; } }
+
+/* settings: a section list, sections folded to a one-line summary, a save bar once something changed */
+.settings { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 28px; align-items: start; }
+.snav { position: sticky; top: calc(var(--top) + 24px); display: flex; flex-direction: column; gap: 2px; }
+.snav a { padding: 7px 12px; border-radius: var(--r-s); color: var(--muted); text-decoration: none; font-size: .92rem; }
+.snav a:hover { color: var(--text); background: var(--raised); }
+.snav a[aria-current="true"] { color: var(--text); background: var(--raised); }
+.snav a.warn::after { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); margin-left: 8px; vertical-align: 1px; }
+@media (max-width: 960px) {
+  .settings { grid-template-columns: minmax(0, 1fr); gap: 14px; }
+  .snav { top: var(--top); z-index: 4; flex-direction: row; overflow-x: auto; gap: 6px; padding: 10px 0; margin: -10px 0 0; background: var(--bg); scrollbar-width: none; }
+  .snav a { white-space: nowrap; border: 1px solid var(--border); border-radius: var(--pill); padding: 5px 12px; font-size: .86rem; }
+}
+.fold { border: 1px solid var(--border); background: var(--panel); border-radius: var(--r); margin: 0 0 10px; scroll-margin-top: calc(var(--top) + 64px); }
+.fold > summary, .fold > .head { list-style: none; display: flex; align-items: center; gap: 14px; padding: 14px 18px; cursor: pointer; }
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary > div, .fold > .head > div { flex: 1; min-width: 0; }
+.fold .sum { font-size: .86rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fold .chev { width: 18px; height: 18px; color: var(--faint); transition: transform .15s; flex: none; }
+.fold[open] > summary .chev { transform: rotate(180deg); }
+.fold > summary:hover .chev { color: var(--text); }
+.fold-body { padding: 4px 18px 6px; border-top: 1px solid var(--border); }
+.fold-body > p.lead-s:first-child { margin-top: 14px; }
+p.lead-s { margin: 0 0 14px; color: var(--muted); font-size: .9rem; }
+.info { width: 18px; height: 18px; padding: 0; margin-left: 6px; border-radius: 50%; border: 1px solid var(--border-strong); background: none; color: var(--muted); font: 600 .68rem/1 var(--font); cursor: pointer; vertical-align: 1px; }
+.info:hover, .info[aria-expanded="true"] { color: var(--text); border-color: var(--muted); }
+.hint { font-size: .86rem; color: var(--muted); background: var(--panel-solid); border: 1px solid var(--border); border-radius: var(--r-s); padding: 10px 12px; margin: -6px 0 14px; max-width: 72ch; }
+.section { border: 1px solid var(--border); background: var(--panel); border-radius: var(--r); padding: 20px 20px 8px; margin: 0 0 16px; }
+.section > h2 { margin: 0 0 4px; }
+.entry { border: 1px solid var(--border); background: var(--panel-solid); border-radius: var(--r-s); padding: 14px 16px 4px; margin: 0 0 12px; }
+.entry-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; gap: 8px; }
+.entry.fe { padding: 0; }
+.fe > summary { list-style: none; display: flex; align-items: center; gap: 12px; padding: 11px 14px 11px 16px; cursor: pointer; }
+.fe > summary::-webkit-details-marker { display: none; }
+.fe > summary > div { flex: 1; min-width: 0; }
+.fe .sum { font-size: .84rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fe > summary .chev { width: 18px; height: 18px; color: var(--faint); transition: transform .15s; flex: none; }
+.fe[open] > summary .chev { transform: rotate(180deg); }
+.fe-body { padding: 14px 16px 4px; border-top: 1px solid var(--border); }
+.fe[data-role="main"] { border-left: 3px solid var(--ok); }
+.fe[data-role="backup"] { border-left: 3px solid var(--warn); }
+.role { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: var(--pill); font-size: .72rem; font-weight: 600; vertical-align: 2px; }
+.role-main { background: rgba(74, 222, 128, .12); color: var(--ok); }
+.role-backup { background: rgba(251, 191, 36, .13); color: var(--warn); }
+.adder { margin: 0 0 16px; }
+.savebar { position: fixed; left: 84px; right: 0; bottom: var(--bottom); background: rgba(12, 12, 12, .94); backdrop-filter: blur(8px); border-top: 1px solid var(--border-strong); z-index: 7; transform: translateY(calc(100% + var(--bottom))); transition: transform .18s ease-out; }
+.savebar:not(.show) { visibility: hidden; transition: transform .18s ease-out, visibility 0s .18s; }
+.savebar.show { transform: none; }
+.savebar .inner { display: flex; gap: 10px; align-items: center; padding: 12px 32px; max-width: 1180px; }
+.savebar .msg { flex: 1; font-size: .9rem; color: var(--text); }
+.savebar .msg small { color: var(--muted); margin-left: 6px; }
+@media (max-width: 760px) { .savebar { left: 0; } .savebar .inner { padding: 10px 16px; } .savebar .msg small { display: none; } }
+
+/* system */
+.card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; border: 1px solid var(--border); border-radius: var(--r); background: var(--panel); padding: 16px 18px; }
+table { width: 100%; border-collapse: collapse; }
+.tablewrap { border: 1px solid var(--border); border-radius: var(--r); background: var(--panel); overflow: hidden; }
+td, th { text-align: left; padding: 10px 16px; border-top: 1px solid var(--border); font-weight: 400; }
+th { color: var(--muted); font-size: .82rem; border-top: 0; font-weight: 500; }
+td.num { font-variant-numeric: tabular-nums; }
+td.tag { font: .84rem var(--mono); color: var(--muted); }
+.versions { margin-top: 12px; }
+.versions > summary { cursor: pointer; color: var(--muted); font-size: .9rem; padding: 4px 0 10px; }
+.versions > summary:hover { color: var(--text); }
+.blist li { padding: 8px 8px 8px 16px; }
+.blist .when { color: var(--text); }
+.blist .size { color: var(--muted); font-size: .86rem; margin-left: 10px; font-variant-numeric: tabular-nums; }
+
+/* gate and setup */
+.gate { max-width: 400px; margin: 12vh auto 0; padding: 0 16px; }
+.brand-logo { display: block; width: 168px; height: auto; margin: 0 auto 26px; }
+.setupwrap .brand-logo { width: 120px; margin: 0 0 18px; }
+.gate > h1, .gate > p.lead { text-align: center; }
+.gate form { border: 1px solid var(--border); border-radius: var(--r); background: var(--panel); padding: 20px 20px 10px; }
+.gate .btn.primary { width: 100%; padding: 10px; }
+.steps { display: inline-flex; gap: 4px; margin: 0 0 24px; flex-wrap: wrap; padding: 4px; border: 1px solid var(--border); border-radius: var(--pill); background: var(--panel); }
+.steps span { padding: 5px 13px; border-radius: var(--pill); font-size: .86rem; color: var(--muted); }
+.steps span[aria-current="step"] { color: #fff; background: var(--accent); font-weight: 600; }
+.steps span.done { color: var(--ok); }
+.nav-steps { display: flex; justify-content: space-between; margin-top: 8px; }
+.setupwrap { max-width: 860px; margin: 0 auto; padding: 26px 16px 60px; }
+
+/* dialogs: job log and confirm */
+dialog { width: min(920px, calc(100% - 24px)); max-height: 88vh; padding: 0; border: 1px solid var(--border-strong); border-radius: var(--r); background: #0b0b0b; color: var(--text); }
+dialog::backdrop { background: rgba(0, 0, 0, .7); }
+.dlg-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border); gap: 10px; }
+pre.log { margin: 0; padding: 14px 20px; height: 60vh; overflow: auto; font: 12.5px/1.5 var(--mono); white-space: pre-wrap; background: #050505; color: #cfcfcf; }
+.state-ok { color: var(--ok); } .state-failed { color: var(--fail); } .state-running, .state-queued { color: var(--warn); }
+#askdlg { width: min(440px, calc(100% - 24px)); }
+#askdlg .body { padding: 20px 22px 6px; }
+#askdlg p { color: var(--muted); margin: 6px 0 0; font-size: .92rem; }
+#askdlg .foot { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 22px 18px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+<symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+<symbol id="i-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V11M10 20V5M16 20v-6M21 20H3"/></symbol>
+<symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+<symbol id="i-system" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></symbol>
+<symbol id="i-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4H6a2 2 0 00-2 2v12a2 2 0 002 2h3M15 16l4-4-4-4M19 12H9"/></symbol>
+<symbol id="i-house" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></symbol>
+<symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.5 3 14.5 0 18M12 3c-3 3.5-3 14.5 0 18"/></symbol>
+<symbol id="i-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></symbol>
+</svg>
+
+<div id="app"></div>
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<dialog id="jobdlg" aria-labelledby="jobtitle">
+  <div class="dlg-head">
+    <div><h3 id="jobtitle">Working</h3><div class="small" id="jobstate"></div></div>
+    <button class="btn quiet" id="jobclose">Close</button>
+  </div>
+  <pre class="log" id="joblog" aria-live="polite"></pre>
+</dialog>
+
+<dialog id="askdlg" aria-labelledby="asktitle">
+  <div class="body"><h3 id="asktitle"></h3><p id="askbody"></p></div>
+  <div class="foot"><button class="btn quiet" value="no">Cancel</button><button class="btn primary" value="yes" id="askok">OK</button></div>
+</dialog>
+
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const app = $("#app");
+let S = { session: null, page: "home", timers: [], base: [], dirty: false };
+
+async function api(path, opts = {}) {
+  const o = { headers: { "Content-Type": "application/json", "X-Dojo": "1" }, ...opts };
+  if (o.body && typeof o.body !== "string") o.body = JSON.stringify(o.body);
+  const r = await fetch(path, o);
+  let data = {};
+  try { data = await r.json(); } catch (_) {}
+  if (r.status === 401 && path !== "/api/login") { boot(); throw new Error("signed out"); }
+  if (!r.ok && data.ok === undefined) data.ok = false;
+  return data;
+}
+function clearTimers() { [...S.timers, ...S.base].forEach(clearInterval); S.timers = []; S.base = []; if (S.es) { S.es.close(); S.es = null; S.live = false; } }
+const brand = () => `<img class="brand-logo" src="/static/logo.png" alt="ninjarr">`;
+
+// small building blocks
+function toast(msg, kind = "ok") {
+  const t = document.createElement("div");
+  // "t-": a toast's kind must not collide with other classes (.info is the ⓘ button)
+  t.className = `toast t-${kind}`; t.textContent = msg;
+  $("#toasts").appendChild(t);
+  setTimeout(() => t.remove(), kind === "fail" ? 7000 : 4000);
+}
+function ask({ title, body, ok = "OK" }) {
+  return new Promise(res => {
+    const d = $("#askdlg");
+    $("#asktitle").textContent = title; $("#askbody").textContent = body || ""; $("#askok").textContent = ok;
+    d.querySelectorAll("button").forEach(b => b.onclick = () => { d.close(); res(b.value === "yes"); });
+    d.oncancel = () => res(false);
+    d.showModal();
+  });
+}
+const sk = (h, w = "100%") => `<div class="sk" style="height:${h}px;width:${w}"></div>`;
+const info = text => `<button type="button" class="info" data-info aria-expanded="false" aria-label="More about this">i</button></p><p class="hint hidden">${text}`;
+const plural = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many}`;
+function when(ts) {
+  const x = new Date(ts * 1000), n = new Date(), y = new Date(n); y.setDate(n.getDate() - 1);
+  const t = x.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (x.toDateString() === n.toDateString()) return `Today, ${t}`;
+  if (x.toDateString() === y.toDateString()) return `Yesterday, ${t}`;
+  return `${x.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}, ${t}`;
+}
+function stamp() { S.updated = Date.now(); fresh(); }
+function fresh() {
+  const el = $("#fresh"); if (!el) return;
+  if (!S.updated) { el.textContent = ""; return; }
+  const s = Math.round((Date.now() - S.updated) / 1000);
+  const when = s < 10 ? "just now" : s < 60 ? `${s} s ago` : `${Math.round(s / 60)} min ago`;
+  el.innerHTML = S.live && S.reload ? `<span class="live-dot" aria-hidden="true"></span>Live · updated ${when}` : `Updated ${when}`;
+  el.title = S.live && S.reload ? "This page updates by itself when something happens in your apps" : "";
+}
+// Live updates: Dojo passes on what Sonarr, Radarr, Seerr and the players report; the open page
+// reloads (once, shortly after a burst of events). The timers stay as a slow safety net.
+function startLive() {
+  if (S.es) S.es.close();
+  if (!window.EventSource) return;
+  const es = S.es = new EventSource("/api/events");
+  es.onopen = () => { S.live = true; fresh(); };
+  es.onerror = () => { S.live = false; fresh(); };
+  es.onmessage = e => {
+    let ev; try { ev = JSON.parse(e.data); } catch (_) { return; }
+    if (ev.toast) toast(ev.toast, "info");
+    clearTimeout(S.liveT);
+    S.liveT = setTimeout(() => S.reload && !document.hidden && S.reload(), 1500);
+  };
+}
+// a page's timer: every MS while not live, otherwise only as a 5-minute safety net
+function poll(load, ms) {
+  S.reload = load;
+  S.timers.push(setInterval(() => { if (!S.live || Date.now() - (S.updated || 0) > 300000) load(); }, ms));
+}
+
+// ───────────────────────── start
+// the installed app's service worker: browsers allow it on HTTPS only, so on http://<vm>:1337 this skips
+if ("serviceWorker" in navigator && window.isSecureContext) navigator.serviceWorker.register("/sw.js").catch(() => {});
+async function boot() {
+  clearTimers();
+  try { S.session = await (await fetch("/api/session")).json(); }
+  catch (_) { app.innerHTML = gate(`<h1>Reconnecting…</h1><p class="lead">Dojo isn't answering, probably restarting. This page tries again by itself.</p>`); setTimeout(boot, 3000); return; }
+  if (!S.session.authed) return S.session.setup ? showCode() : showLogin();
+  if (S.session.setup) return setupWizard();
+  shell();
+}
+const gate = inner => `<div class="gate">${brand()}${inner}</div>`;
+
+function showCode() {
+  app.innerHTML = gate(`
+    <h1>Set up ninjarr</h1>
+    <p class="lead">Type the six-digit code shown in your terminal.</p>
+    <form id="f"><label class="field"><span>Setup code</span><input type="text" inputmode="numeric" autocomplete="one-time-code" id="code" maxlength="6" required></label>
+    <button class="btn primary">Continue</button><p class="result fail" id="r"></p></form>`);
+  $("#code").focus();
+  $("#f").onsubmit = async e => {
+    e.preventDefault();
+    const d = await api("/api/login", { method: "POST", body: { code: $("#code").value } });
+    d.ok ? boot() : ($("#r").textContent = d.message && /many/.test(d.message) ? d.message : "That code doesn't match. It's in the terminal, next to “code”.");
+  };
+}
+function showLogin() {
+  app.innerHTML = gate(`
+    <h1>Sign in</h1>
+    <p class="lead">Same login as Emby, Sonarr and the rest.</p>
+    <form id="f"><label class="field"><span>Username</span><input type="text" id="u" autocomplete="username" required></label>
+    <label class="field"><span>Password</span><input type="password" id="p" autocomplete="current-password" required></label>
+    <button class="btn primary">Sign in</button><p class="result fail" id="r"></p></form>`);
+  $("#u").focus();
+  $("#f").onsubmit = async e => {
+    e.preventDefault();
+    const d = await api("/api/login", { method: "POST", body: { user: $("#u").value, password: $("#p").value } });
+    d.ok ? boot() : ($("#r").textContent = d.message && /many/.test(d.message) ? d.message : "Username or password doesn't match.");
+  };
+}
+
+// ───────────────────────── main shell
+const PAGES = [["home", "Home"], ["activity", "Activity"], ["settings", "Settings"], ["system", "System"]];
+const OLD = { health: "home", stack: "activity", backups: "system" };   // bookmarks from before
+function shell() {
+  app.innerHTML = `<div class="shell">
+  <nav class="rail" aria-label="Dojo">
+    <span class="logo" title="Dojo ${esc(S.session.version)}"><img src="/static/mark.png" alt="ninjarr"><small>v${esc(S.session.version)}</small></span>
+    ${PAGES.map(([id, n]) => `<button data-p="${id}"><svg aria-hidden="true"><use href="#i-${id}"/></svg><span class="lbl">${n}</span></button>`).join("")}
+    <span class="spacer"></span>
+    <button id="logout"><svg aria-hidden="true"><use href="#i-out"/></svg><span class="lbl">Sign out</span></button>
+  </nav>
+  <div class="content">
+    <header class="topbar"><h1 id="ptitle"></h1><span class="fresh" id="fresh"></span>
+      <button class="jobpill" id="jobpill" hidden><span class="dot"></span><span id="jobpilltext">Working</span></button><span id="pact"></span></header>
+    <main id="page"></main>
+  </div></div>`;
+  app.querySelectorAll(".rail [data-p]").forEach(b => b.onclick = () => go(b.dataset.p));
+  $("#logout").onclick = async () => { await api("/api/logout", { method: "POST" }); history.replaceState(null, "", location.pathname); boot(); };
+  $("#jobpill").onclick = () => S.lastJob && openJob(S.lastJob);
+  S.base.push(setInterval(watchJobs, 4000), setInterval(fresh, 5000)); watchJobs(); startLive();
+  go(location.hash.slice(1) || "home", "replace");
+}
+// how: "push" (a click), "replace" (first load), "pop" (the browser's back/forward), "stay" (re-render)
+async function go(p, how = "push") {
+  p = OLD[p] || p;
+  if (!PAGES.some(([id]) => id === p)) p = "home";
+  if (S.dirty && S.page === "settings" && p !== "settings") {
+    if (!(await ask({ title: "Leave without saving?", body: "Your changes in Settings aren't saved yet.", ok: "Leave" }))) {
+      if (how === "pop") history.pushState(null, "", "#settings");
+      return;
+    }
+    S.dirty = false;
+  }
+  if (how === "push" && location.hash !== "#" + p) history.pushState(null, "", "#" + p);
+  if (how === "replace") history.replaceState(null, "", "#" + p);
+  const name = PAGES.find(([id]) => id === p)[1];
+  const same = S.page === p && how === "stay";
+  S.page = p;
+  document.title = `${name} · Dojo`;
+  $("#ptitle").textContent = name;
+  app.querySelectorAll(".rail [data-p]").forEach(b => b.dataset.p === p ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current"));
+  S.timers.forEach(clearInterval); S.timers = []; S.reload = null;
+  if (!same) { $("#pact").innerHTML = ""; S.updated = null; fresh(); window.scrollTo(0, 0); }
+  ({ home: pageHome, activity: pageActivity, settings: pageSettings, system: pageSystem })[p]();
+}
+window.addEventListener("popstate", () => { if (S.session && S.session.authed && !S.session.setup && $("#page")) go(location.hash.slice(1), "pop"); });
+window.addEventListener("beforeunload", e => { if (S.dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+async function watchJobs() {
+  // a newer Dojo is running (after an update): load it, unless there are unsaved changes
+  try {
+    const now = await (await fetch("/api/session")).json();
+    if (S.session.build && now.build && now.build !== S.session.build) {
+      if (!S.dirty && !$("#jobdlg").open) { location.reload(); return; }
+      if (S.dirty && !S.toldReload) { S.toldReload = true; toast("Dojo was updated. Save or discard, then reload the page.", "info"); }
+    }
+  } catch (_) {}
+  const jobs = await api("/api/jobs").catch(() => null);
+  if (!jobs) return;
+  const live = jobs.find(j => j.status === "running" || j.status === "queued");
+  const pill = $("#jobpill");
+  if (!pill) return;
+  pill.hidden = !live;
+  if (live) { S.lastJob = live.id; $("#jobpilltext").textContent = jobLabel(live.cmd) + "…"; }
+}
+const jobLabel = c => ({ apply: "Applying settings", wire: "Re-applying settings", update: "Updating", backup: "Backing up", doctor: "Running the full check" })[c.split(" ")[0]]
+  || (c.startsWith("restart") ? `Restarting ${c.split(" ")[1]}` : c.startsWith("restore") ? "Restoring" : c);
+
+async function runJob(cmd) {
+  if (cmd === "reboot" && !(await ask({ title: "Restart the machine now?", ok: "Restart",
+      body: "Everything stops for about a minute, including anything playing. Dojo reconnects by itself." }))) return null;
+  const d = await api("/api/jobs", { method: "POST", body: { cmd } });
+  if (!d.ok) { toast(d.message || "That didn't start.", "fail"); return null; }
+  openJob(d.id, jobLabel(cmd)); watchJobs();
+  return d.id;
+}
+
+// a short job without the log window; resolves to true when it went through
+async function quietJob(cmd) {
+  const d = await api("/api/jobs", { method: "POST", body: { cmd } }).catch(() => ({ ok: false }));
+  if (!d.ok) { toast(d.message || "That didn't start.", "fail"); return false; }
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 1000));
+    const j = await api(`/api/jobs/${d.id}`).catch(() => null);
+    if (j && (j.status === "ok" || j.status === "failed")) return j.status === "ok";
+  }
+  return false;
+}
+
+// ───────────────────────── job log
+let jobPoll = null;
+function openJob(id, title, onDone) {
+  const dlg = $("#jobdlg"), log = $("#joblog");
+  $("#jobtitle").textContent = title || "Job";
+  log.textContent = ""; let offset = 0;
+  clearInterval(jobPoll);
+  const tick = async () => {
+    let d;
+    try {
+      const r = await fetch(`/api/jobs/${id}?offset=${offset}`, { headers: { "X-Dojo": "1" } });
+      if (r.status === 401) { clearInterval(jobPoll); $("#jobstate").textContent = "Signed out. Close this and sign in again."; $("#jobclose").onclick = () => { $("#jobdlg").close(); boot(); }; return; }
+      d = await r.json();
+    }
+    catch (_) { $("#jobstate").textContent = "Dojo is restarting as part of this. Reconnecting…"; return; }
+    if (d.log) { const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 30; log.textContent += d.log; if (atEnd) log.scrollTop = log.scrollHeight; }
+    if (d.offset !== undefined) offset = d.offset;
+    if (!title) $("#jobtitle").textContent = jobLabel(d.cmd || "");
+    const st = d.status || "starting";
+    $("#jobstate").innerHTML = `<span class="state-${esc(st)}">${{ queued: "Waiting for the host to pick it up", running: "Running", ok: "Done", failed: "Stopped with a problem. The log says where." }[st] || esc(st)}</span>`;
+    if (st === "ok" || st === "failed") {
+      clearInterval(jobPoll); watchJobs(); onDone && onDone(st);
+      if (!S.session.setup) { toast(`${$("#jobtitle").textContent}: ${st === "ok" ? "done" : "stopped with a problem"}`, st === "ok" ? "ok" : "fail"); if (S.page) go(S.page, "stay"); }
+    }
+  };
+  jobPoll = setInterval(tick, 1000); tick();
+  $("#jobclose").onclick = () => { clearInterval(jobPoll); dlg.close(); watchJobs(); };
+  if (!dlg.open) dlg.showModal();
+}
+
+// ───────────────────────── home
+const CHAIN = [
+  ["Request", "Seerr", ["Seerr", "Playback/Seerr signed in through Emby"]],
+  ["Search", "Prowlarr", ["Prowlarr", "Search/Indexers"]],
+  ["Grab", "Sonarr · Radarr", ["Sonarr", "Radarr", "Streaming chain/Sonarr → AIOStreams", "Streaming chain/Radarr → AIOStreams"]],
+  ["Stream", "AIOStreams", ["AIOStreams", "Streaming chain/Sonarr sees the AIOStreams library", "Streaming chain/Radarr sees the AIOStreams library"],
+    { iptv: ["AIOStreams · Dispatcharr", ["Live TV/Dispatcharr channels", "Live TV/Dispatcharr"]] }],
+  ["Play", "Emby · Bazarr", ["Emby", "Bazarr", "Playback/Emby libraries", "Playback/Subtitle providers"]],
+];
+function fixButton(f) {
+  if (!f) return "<span></span>";
+  if (f.job) return `<button class="btn" data-job="${esc(f.job)}">${esc(f.label)}</button>`;
+  if (f.go) return `<button class="btn" data-goto="${esc(f.go)}">${esc(f.label)}</button>`;
+  if (f.open) return `<a class="btn" href="${esc(lanUrl(f.open) + (f.path || ""))}" target="_blank" rel="noopener">${esc(f.label)}</a>`;
+  return "<span></span>";
+}
+// go to a page and open one of its sections ("settings/indexers")
+function goTo(where) { const [page, sec] = where.split("/"); S.openSection = sec; go(page); }
+const CHAIN_APP = { Request: "Seerr", Search: "Prowlarr", Grab: "Sonarr", Stream: "AIOStreams", Play: "Emby" };
+// apps by port on the address this page was opened with; the public name when Caddy serves it
+const lanUrl = port => `http://${location.hostname}:${port}`;
+const APPICON = { AIOStreams: [3000, "/logo.png"], Dispatcharr: [9191, "/static/logo.png"] };
+// Drill-down: an item opens the page in the app it comes from (a series in Sonarr, a request in
+// Seerr…). src(link, html) takes a link from the server; at(app, path, html) builds one here.
+const PORTS = { Sonarr: 8989, Radarr: 7878, Prowlarr: 9696, Seerr: 5055, Emby: 8096, AIOStreams: 3000, Dispatcharr: 9191 };
+const src = (l, html) => l ? `<a class="src" href="${esc(lanUrl(l.port) + (l.path || ""))}" target="_blank" rel="noopener" title="Open in ${esc(l.app)}">${html}</a>` : html;
+const at = (app, path, html) => src({ port: PORTS[app], path, app }, html);
+function appIcon(name, port, path) {
+  if (!path) return `<span class="appicon letter" aria-hidden="true">${esc(name[0])}</span>`;
+  return `<img class="appicon" src="${esc(lanUrl(port) + path)}" alt="" referrerpolicy="no-referrer"
+    onerror="this.outerHTML='<span class=&quot;appicon letter&quot; aria-hidden=&quot;true&quot;>${esc(name[0])}</span>'">`;
+}
+function appsPanel(a) {
+  if (!a || !a.apps) return "";
+  const icon = id => `<svg aria-hidden="true"><use href="#i-${id}"/></svg>`;
+  const row = x => `<div class="arow">
+      <a class="aname" href="${esc(lanUrl(x.port))}" target="_blank" rel="noopener">${appIcon(x.name, x.port, x.icon)}<b>${esc(x.name)}</b><span>${esc(x.job)}</span></a>
+      <div class="alinks">
+        <a class="lk lan" href="${esc(lanUrl(x.port))}" target="_blank" rel="noopener" title="At home">${icon("house")}${esc(location.hostname)}:${x.port}</a>
+        ${x.remote ? `<a class="lk ${x.home_only ? "" : "remote"}" href="${esc(x.remote)}" target="_blank" rel="noopener" title="${x.home_only ? "HTTPS, home network only" : "From anywhere"}">${icon(x.home_only ? "house" : "globe")}${esc(x.remote.replace("https://", ""))}</a>` : ""}
+      </div></div>`;
+  return `<h2>Your apps</h2><div class="panel applist">${a.apps.filter(x => x.name !== "Dojo").map(row).join("")}</div>
+    <p class="note">${a.user ? `Sign in to each as <b>${esc(a.user)}</b> with your ninjarr password. ` : ""}${a.domain
+      ? `<span class="legend">${icon("house")} at home</span> · <span class="legend remote">${icon("globe")} from anywhere, over HTTPS</span>`
+      : `Home network only. Add a domain in Settings to reach Emby, Seerr and AIOStreams from outside.`}</p>`;
+}
+async function pageHome() {
+  const el = $("#page");
+  el.innerHTML = `<div class="sk-stack">${sk(34, "50%")}${sk(16, "28%")}${sk(118)}${sk(64)}${sk(150)}</div>`;
+  const load = async () => {
+    const [d, a] = await Promise.all([api("/api/health").catch(() => null), api("/api/apps").catch(() => null)]);
+    if (!d || !d.checks) { el.innerHTML = `<div class="empty"><h3>Can't reach the checks</h3><p>Dojo couldn't run its checks just now. It tries again in 30 seconds.</p></div>`; return; }
+    stamp();
+    const by = k => d.checks.find(c => c.label === k || `${c.group}/${c.label}` === k);
+    const port = n => ((a && a.apps) || []).find(x => x.name === n)?.port;
+    const links = CHAIN.map(([what, who, keys, extra]) => {
+      if (extra && extra.iptv && a && a.iptv) { who = extra.iptv[0]; keys = keys.concat(extra.iptv[1]); }
+      const st = keys.map(by).filter(Boolean).map(c => c.status);
+      const s = st.includes("fail") ? "fail" : st.includes("warn") ? "warn" : st.length ? "ok" : "off";
+      return { what, who, s, port: port(CHAIN_APP[what]) };
+    });
+    const fails = d.checks.filter(c => c.status === "fail"), warns = d.checks.filter(c => c.status === "warn");
+    const broken = links.find(l => l.s === "fail");
+    const verdict = fails.length ? `${broken ? broken.what : "Something"} is broken` : warns.length ? "Working, with a few things to look at" : "Everything works";
+    const sub = fails.length ? esc(fails[0].label + (fails[0].detail ? ": " + fails[0].detail : ""))
+      : `${d.checks.length} checks, ${warns.length ? `${warns.length} to look at` : "all passing"}`;
+    const groups = [...new Set(d.checks.map(c => c.group))];
+    const row = c => `<div class="item ${c.status}"><span class="mark" aria-label="${c.status}"></span>
+          <div><h3>${esc(c.label)}</h3>${c.detail ? `<div class="detail">${esc(c.detail)}</div>` : ""}</div>
+          ${fixButton(c.fix)}</div>`;
+    const attention = [...fails, ...warns];
+    const lang = a && a.language;
+    el.innerHTML = `
+      <p class="verdict ${fails.length ? "fail" : ""}">${verdict}</p><p class="muted" style="margin:0">${sub}</p>
+      <div class="chain" role="list" aria-label="The streaming chain">${links.map(l => `
+        <${l.port ? `a href="${lanUrl(l.port)}" target="_blank" rel="noopener" title="Open ${CHAIN_APP[l.what]}"` : "div"} class="link ${l.s}" role="listitem" aria-label="${l.what}: ${l.s}"><div class="ring"></div><div class="what">${l.what}</div><div class="who">${l.who}</div></${l.port ? "a" : "div"}>`).join("")}</div>
+      ${attention.length ? `<h2>Needs a look</h2><div class="checks">${attention.map(row).join("")}</div>` : ""}
+      ${appsPanel(a)}
+      <details class="more" ${S.openChecks ? "open" : ""}><summary>All ${d.checks.length} checks</summary>
+      ${groups.map(g => `<div class="group-title">${esc(g)}</div><div class="checks">${d.checks.filter(c => c.group === g).map(row).join("")}</div>`).join("")}
+      </details>`;
+    el.querySelectorAll("[data-job]").forEach(b => b.onclick = () => runJob(b.dataset.job));
+    el.querySelectorAll("[data-goto]").forEach(b => b.onclick = () => goTo(b.dataset.goto));
+    $("details.more", el).ontoggle = e => { S.openChecks = e.target.open; };
+  };
+  await load();
+  poll(load, 30000);
+}
+
+// one sentence on what to do about the transcodes that are running
+function transcodeHint(sessions) {
+  const t = sessions.filter(x => x.how === "transcoding");
+  const r = t.flatMap(x => x.reasons).join(" ");
+  const devices = [...new Set(t.map(x => x.device))].join(", ");
+  if (/codec/.test(r) && t.some(x => /AV1/.test(x.source))) return `${devices} can't play AV1, so Emby converts it. New grabs avoid AV1; older AV1 files get replaced over time.`;
+  if (/HDR|Dolby Vision/.test(r)) return `${devices} can't show this HDR format, so Emby converts it and colours can look washed out. A device with HDR support plays it directly.`;
+  if (/bitrate/.test(r)) return `The bitrate is above what ${devices} or the connection allows. Raise the quality limit in the Emby app's playback settings.`;
+  if (/subtitles/.test(r)) return `The subtitles are burned into the picture on ${devices}. A text subtitle (SRT) plays directly.`;
+  return `${devices} needs the file converted. Emby does that on the CPU unless the VM has a GPU and Emby Premiere.`;
+}
+
+// ───────────────────────── activity: right now, the numbers across the apps, the timeline
+async function pageActivity() {
+  const el = $("#page");
+  S.win = S.win || "7d"; S.tab = S.tab || "overview";
+  const head = () => `<div class="subnav"><div class="seg" role="group" aria-label="View">
+      ${[["overview", "Overview"], ["timeline", "Timeline"]].map(([k, n]) => `<button data-tab="${k}" aria-pressed="${S.tab === k}">${n}</button>`).join("")}</div>
+      ${S.tab === "overview" ? `<div class="seg" role="group" aria-label="Period">${["24h", "7d", "30d"].map(x => `<button data-w="${x}" aria-pressed="${x === S.win}">${x}</button>`).join("")}</div>` : ""}</div>`;
+  const bindHead = () => {
+    el.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => { S.tab = b.dataset.tab; pageActivity(); });
+    el.querySelectorAll("[data-w]").forEach(b => b.onclick = () => { S.win = b.dataset.w; pageActivity(); });
+  };
+  S.timers.forEach(clearInterval); S.timers = [];
+  el.innerHTML = head() + `<div class="sk-stack">${sk(76)}${sk(30, "45%")}${sk(140)}${sk(120)}</div>`; bindHead();
+  const load = async () => {
+    const html = S.tab === "timeline" ? await timeline() : await overview();
+    if (html == null) return;
+    stamp();
+    el.innerHTML = head() + html; bindHead();
+    el.querySelectorAll("[data-libs]").forEach(b => b.onclick = async () => {
+      if (b.dataset.confirm === "replace" && !(await ask({ title: "Replace the broken files?",
+          body: "Each release with missing parts or gone from usenet goes on Sonarr's or Radarr's blocklist, so it's never grabbed again. Its file is removed and a search starts for another release. Until one is found, the title shows under “Not found yet”.", ok: "Replace" }))) return;
+      b.disabled = true;
+      const rs = await Promise.all(b.dataset.libs.split(" ").map(x => api(`/api/library/${x}`, { method: "POST" }).catch(() => ({ ok: false }))));
+      const ok = rs.every(r => r.ok);
+      toast(ok ? (rs.map(r => r.message).filter(m => m && !/^(Nothing|Everything)/.test(m)).join(" ") || "Asked Sonarr and Radarr. Results show up in the timeline.") : (rs.find(r => !r.ok).message || "That didn't work."), ok ? "ok" : "fail");
+      b.disabled = false;
+    });
+  };
+  await load();
+  poll(load, S.tab === "timeline" ? 15000 : 60000);
+}
+async function overview() {
+  const d = await api(`/api/stack?window=${S.win}`).catch(() => null);
+  if (!d || !d.flow) return `<div class="empty"><h3>Couldn't collect the numbers</h3><p>One of the apps isn't answering. Home shows which.</p></div>`;
+  const f = d.flow, L = d.library, n = d.now, H = d.healing;
+  const span = { "24h": "24 hours", "7d": "7 days", "30d": "30 days" }[S.win];
+  const w = (x, of) => of ? Math.max(2, Math.round(100 * x / of)) : 0;
+  const mins = m => m == null ? "–" : m < 90 ? `${m} min` : m < 2880 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} days`;
+  const bar = (label, sub, val, of, cls = "") => `<div class="bar"><span class="label">${label}${sub ? `<small>${sub}</small>` : ""}</span>
+      <span class="track"><span class="fill ${cls}" style="width:${w(val, of)}%"></span></span><span class="n">${val}</span></div>`;
+  const pctTxt = (p, good, meh) => p == null ? "–" : `<span class="${p >= good ? "good" : p >= meh ? "meh" : "bad"}">${p}%</span>`;
+
+  const lt = n.livetv;                      // null without Live TV
+  const live = lt && lt.ok ? lt.channels : [];
+  const logins = lt && lt.ok ? lt.logins.filter(x => x.max) : [];
+  const busy = n.viewers || n.streams || live.length;
+  const via = x => { const n = x.via === "dispatcharr" ? "Dispatcharr" : "AIOStreams";
+    return at(n, x.via === "dispatcharr" ? "/stats" : "/dashboard/streams/active", `<span class="via via-${x.via}">${appIcon(n, ...APPICON[n])}${n}</span>`); };
+  const ltNote = !lt || lt.ok ? "" : `<p class="note">${{ "no-key": "Connect Dojo to Dispatcharr in Settings → Live TV to see live TV here.",
+      rejected: "Dispatcharr turned down Dojo's API key. Connect again in Settings → Live TV.", down: "Dispatcharr isn't answering." }[lt.reason] || ""}</p>`;
+  const now = busy ? `<div class="now">
+      <div><b>${n.viewers}</b><span>${n.viewers ? `watching in Emby · ${n.direct} direct, ${n.transcoding} transcoding` : "watching in Emby"}</span></div>
+      <div><b>${n.mbps} MB/s</b><span>from usenet, ${plural(n.streams, "stream")}</span></div>
+      <div><b>${n.connections} / ${n.connections_max}</b><span>${at("AIOStreams", "/dashboard/usenet", "usenet connections")}</span></div>
+      ${lt && lt.ok ? `<div><b>${live.length}</b><span>live TV ${live.length === 1 ? "channel" : "channels"}${logins.length ? ` · ${logins.reduce((a, x) => a + x.used, 0)} / ${logins.reduce((a, x) => a + x.max, 0)} IPTV logins` : ""}</span></div>`
+        : `<div><b>${n.has_backup ? (n.backup_share_pct ?? 0) + "%" : "–"}</b><span>${n.has_backup ? "from the backup provider" : "no backup provider"}</span></div>`}
+    </div>
+    ${n.sessions.length ? `<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Who</th><th>Playing</th><th>From</th><th>File</th><th>How</th><th>Bitrate</th></tr></thead><tbody>
+      ${n.sessions.map(x => `<tr><td>${esc(x.user)}<div class="meta small">${esc(x.device)}</div></td><td>${src(x.link, esc(x.title))}${x.paused ? ` <span class="meta">paused</span>` : ""}</td>
+        <td>${via(x)}</td>
+        <td class="num">${esc(x.source || "–")}</td>
+        <td><span class="${x.how === "transcoding" ? "meh" : x.how === "direct play" ? "good" : ""}">${esc(x.how)}</span>${x.hw === false ? ` <span class="meta">on the CPU</span>` : ""}
+          ${x.reasons.length ? `<div class="meta small">${x.reasons.map(esc).join("; ")}</div>` : ""}</td>
+        <td class="num">${x.mbps != null ? x.mbps + " Mbit/s" : "–"}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    ${n.sessions.some(x => x.how === "transcoding" && x.via !== "dispatcharr") ? `<p class="note">${transcodeHint(n.sessions.filter(x => x.via !== "dispatcharr"))}</p>` : ""}
+    ${live.length ? `<h3 class="sub">Live TV through Dispatcharr</h3><div class="tablewrap"><table><thead><tr><th>Channel</th><th>Watching</th><th>Quality</th><th>IPTV login</th></tr></thead><tbody>
+      ${live.map(c => `<tr><td>${at("Dispatcharr", "/stats", esc(c.name))}${c.healthy === false ? ` <span class="meh">· stalling</span>` : ""}<div class="meta small">for ${c.minutes} min</div></td>
+        <td>${c.watchers.length ? c.watchers.map(w => esc(w.app)).join(", ") : plural(c.clients, "viewer")}<div class="meta small">${c.watchers.map(w => esc(w.ip)).filter(Boolean).join(", ")}</div></td>
+        <td class="num">${esc(c.quality || "–")}${c.kbps ? `<div class="meta small">${(c.kbps / 1000).toFixed(1)} Mbit/s</div>` : ""}</td>
+        <td>${c.login ? at("Dispatcharr", "/sources", esc(c.login)) : "–"}</td></tr>`).join("")}</tbody></table></div>` : ""}
+    ${logins.length > 1 && live.length ? `<p class="note">IPTV logins: ${logins.map(x => `${esc(x.name)} <b>${x.used}/${x.max}</b>`).join(" · ")}</p>` : ""}
+    ${n.has_backup && n.backup_share_pct >= 15 ? `<p class="note"><span class="meh">The backup provider fills ${n.backup_share_pct}% of articles.</span> Your main provider misses more than usual.</p>` : ""}${ltNote}`
+    : `<div class="idle">Nobody's watching${lt && lt.ok ? ", no live TV is on" : ""} and usenet is idle${n.connections_max ? ` · ${n.connections_max} connections ready` : ""}.</div>${ltNote}`;
+
+  const hasData = f.requested || f.grabs || d.indexers.length || H.failed || L.files;
+  if (!hasData) return `<h2 style="margin-top:0">Right now</h2>${now}<h2>Last ${span}</h2>
+    <div class="empty"><h3>Nothing to measure yet</h3><p>Request something in Seerr. Numbers show up here as it moves through the stack.</p>
+    <p><a class="btn" href="${lanUrl(5055)}" target="_blank" rel="noopener">Open Seerr</a></p></div>`;
+
+  const headline = f.requested
+    ? `${f.available} of ${plural(f.requested, "request")} became watchable${f.minutes_to_play_median != null ? `, typically in ${mins(f.minutes_to_play_median)}` : ""}`
+    : `No requests in the last ${span}`;
+  return `<h2 style="margin-top:0">Right now</h2>${now}
+    <h2>Last ${span}</h2>
+    <p class="verdict sm">${headline}</p>
+    ${f.requested ? `<div class="funnel" style="margin-top:14px">
+      ${bar("Requested", `in ${at("Seerr", "/requests", "Seerr")}`, f.requested, f.requested)}
+      ${bar("Watchable", `in ${at("Emby", "/web/index.html", "Emby")}`, f.available, f.requested, "ok")}
+      ${bar("Watched", "played at least once", f.watched, f.requested, "ok")}
+    </div>` : ""}
+    <p class="note">${plural(f.grabs, "release")} grabbed · ${f.imports} imported · ${f.failed} failed${f.minutes_to_play_worst != null ? ` · slowest request ${mins(f.minutes_to_play_worst)}` : ""}
+      · history in ${at("Sonarr", "/activity/history", "Sonarr")} and ${at("Radarr", "/activity/history", "Radarr")}</p>
+    ${f.stuck.length ? `<h2>Waiting over 2 hours</h2><div class="panel"><ul class="list">${f.stuck.map(x => `<li><span>${src(x.link, esc(x.title))}${x.by ? ` <span class="meta">· requested by ${esc(x.by)}</span>` : ""}</span><span class="meta">${esc(x.status)} · ${x.age_h} h</span></li>`).join("")}</ul></div>
+      <p class="note">“No release found yet” usually means nothing in your language or quality exists yet. Sonarr and Radarr keep looking.</p>` : ""}
+    ${d.indexers.length ? `<h2>Indexers</h2><div class="tablewrap"><table><thead><tr><th>Indexer</th><th>Grabbed</th><th>Landed</th><th>Complete</th></tr></thead><tbody>
+      ${d.indexers.map(r => `<tr><td>${at("Prowlarr", "/indexers", esc(r.indexer.replace(/ \(Prowlarr\)$/, "")))}</td><td class="num">${at("Prowlarr", "/history", r.grabs)}</td>
+        <td class="num">${r.imported} · ${pctTxt(r.landed_pct, 90, 75)}</td>
+        <td class="num">${r.complete_pct == null ? "–" : at("AIOStreams", "/dashboard/usenet/stats", pctTxt(r.complete_pct, 95, 85))}${r.dead_on_arrival ? ` <span class="meta">${r.dead_on_arrival} dead</span>` : ""}</td></tr>`).join("")}</tbody></table></div>
+      <p class="note">Landed: the grab became a file. Complete: AIOStreams found the whole release on usenet.</p>` : ""}
+    ${H.failed ? `<h2>Self-healing</h2>
+    <div class="panel"><ul class="list">
+      <li><span>Releases that died or failed</span><span class="count">${H.failed}</span></li>
+      <li><span>Replaced on its own</span><span class="count ${H.replaced === H.failed ? "good" : ""}">${H.replaced}</span></li>
+      <li><span>Still waiting for a replacement${H.waiting.length ? `<div class="small muted">${H.waiting.map(x => src(x.link, esc(x.title))).join(", ")}</div>` : ""}</span><span class="count ${H.waiting_count ? "meh" : ""}">${H.waiting_count}</span></li>
+    </ul></div>` : ""}
+    ${L.files ? libraryPanel(L, span) : ""}`;
+}
+// The library in a few lines: what it holds, does it play, what's missing, language, picture, upgrades
+function libraryPanel(L, span) {
+  const t = list => list.map(x => `${src(x.link, esc(x.title))}${x.n > 1 ? ` <span class="meta">(${x.unit ? plural(x.n, x.unit) : x.n})</span>` : ""}`).join(" · ");
+  const row = (label, value, detail, action = "") => `<div class="lrow"><div class="llabel">${label}</div>
+      <div><div class="lvalue">${value}</div>${detail ? `<div class="ldetail">${detail}</div>` : ""}</div><div class="actions">${action}</div></div>`;
+  const P = L.plays, M = L.missing, G = L.language, Q = L.picture;
+  const total = Q["2160p"] + Q["1080p"] + Q["720p"] + Q.lower || 1;
+  const seg = (k, cls) => Q[k] ? `<span class="${cls}" style="width:${100 * Q[k] / total}%" title="${k}: ${Q[k]}"></span>` : "";
+  const parts = [L.series && plural(L.series, "series", "series"), L.episodes && plural(L.episodes, "episode"), L.movies && plural(L.movies, "movie")].filter(Boolean);
+  return `<h2>Library</h2><p class="libsize">${parts.join(" · ")}</p><div class="panel lib">
+    ${row("Playback", !P ? `<span class="muted">AIOStreams didn't answer</span>`
+        : P.degraded || P.dead ? [P.degraded && `<span class="meh">${plural(P.degraded, "file")} with missing parts</span>`, P.dead && `<span class="bad">${P.dead} gone from usenet</span>`].filter(Boolean).join(" · ")
+        : `<span class="good">All ${P.files} files complete on usenet</span>`,
+      P && (P.degraded || P.dead)
+        ? `${P.items.map(x => `<span class="${x.dead ? "bad" : "meh"}">${src(x.link, esc(x.title))}</span>`).join(" · ")}${P.more ? ` <span class="meta">and ${P.more} more</span>` : ""}
+           <br>${[P.degraded && "Missing parts can make playback stutter or stop; Replace swaps them for another release.", P.dead && "Gone ones don't play; AIOStreams has Sonarr/Radarr replace them by itself, Replace does it now."].filter(Boolean).join(" ")} Checked every night by ${at("AIOStreams", "/dashboard/usenet/library", "AIOStreams")}.`
+        : `Checked every night by ${at("AIOStreams", "/dashboard/usenet/library", "AIOStreams")}.`,
+      P && (P.degraded || P.dead) ? `<button class="btn" data-libs="sonarr/replace-broken radarr/replace-broken" data-confirm="replace">Replace ${P.degraded + P.dead}</button>` : "")}
+    ${row("Not found yet", M.episodes || M.movies ? [M.episodes && plural(M.episodes, "episode"), M.movies && plural(M.movies, "movie")].filter(Boolean).join(" · ") : `<span class="good">Nothing waiting</span>`,
+      M.episodes || M.movies ? `${t(M.titles)}<br>Aired and monitored, but no release found yet · ${[M.episodes && at("Sonarr", "/wanted/missing", "Sonarr"), M.movies && at("Radarr", "/wanted/missing", "Radarr")].filter(Boolean).join(" · ")}` : "Every aired episode and released movie has a file.",
+      M.episodes || M.movies ? `<button class="btn" data-libs="sonarr/search-missing radarr/search-missing">Search now</button>` : "")}
+    ${G ? row("Language", `${G.pct}% ${esc(G.name)}`, G.other ? `${plural(G.other, "file")} without ${esc(G.name)} audio: ${t(G.titles)}` : "",
+      G.other ? `<button class="btn" data-libs="sonarr/upgrade-language radarr/upgrade-language">Find ${esc(G.name)}</button>` : "") : ""}
+    ${row("Picture", `<span class="stackbar">${seg("2160p", "s4k")}${seg("1080p", "sfhd")}${seg("720p", "shd")}${seg("lower", "ssd")}</span>`,
+      `<span class="lg s4k"></span>2160p ${Q["2160p"]} <span class="lg sfhd"></span>1080p ${Q["1080p"]} <span class="lg shd"></span>720p ${Q["720p"]}${Q.lower ? ` <span class="lg ssd"></span>lower ${Q.lower}` : ""} · HDR or Dolby Vision ${Q.hdr}`)}
+    ${row("Upgrades", `${L.upgrades.done} replaced by a better release <span class="muted">in the last ${span}</span>`,
+      L.upgrades.waiting ? `${L.upgrades.waiting} could still get better (your language in 2160p). Sonarr and Radarr swap them when a release appears · ${at("Sonarr", "/wanted/cutoffunmet", "Sonarr")} · ${at("Radarr", "/wanted/cutoffunmet", "Radarr")}` : "")}
+  </div>`;
+}
+
+async function timeline() {
+  const d = await api("/api/activity").catch(() => null);
+  if (!d) return null;
+  const names = { request: "Requested", grab: "Grabbed", import: "In library", failed: "Failed", deleted: "Removed" };
+  const day = t => when(t).split(",")[0];
+  let last = "", rows = "";
+  for (const e of d.events) {
+    const dd = day(e.t);
+    if (dd !== last) { rows += `<li class="day">${dd}</li>`; last = dd; }
+    rows += `<li class="ev"><span class="time">${new Date(e.t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+      <span class="kind k-${e.kind}">${names[e.kind]}</span>
+      <span class="body"><span>${src(e.link, esc(e.title))}</span>${e.detail ? `<div class="detail">${esc(e.detail)}</div>` : ""}</span></li>`;
+  }
+  return rows ? `<ul class="timeline">${rows}</ul>`
+    : `<div class="empty"><h3>No activity yet</h3><p>Requests, grabs and imports from Seerr, Sonarr and Radarr show up here, newest first.</p></div>`;
+}
+
+// ───────────────────────── settings (also the setup form)
+// pick lists: usenet providers (usenet.rexum.space, as used by AIOStreams) and Prowlarr's indexers
+const CAT = { providers: [], indexers: [] };
+async function loadCatalog() { if (!CAT.loaded) { Object.assign(CAT, await api("/api/catalog").catch(() => ({})), { loaded: true }); } }
+const hostRoot = h => (h || "").toLowerCase().split(".").slice(-2).join(".");
+function providerFor(host) {
+  host = (host || "").toLowerCase();
+  if (!host) return null;
+  return CAT.providers.find(x => x.host === host) || CAT.providers.find(x => hostRoot(x.host) === hostRoot(host));
+}
+function providerPick(p) {
+  const cur = providerFor(p.host);
+  const groups = {};
+  CAT.providers.forEach((x, n) => (groups[x.backbone || "Other"] ||= []).push([x, n]));
+  return `<label class="field"><span>Provider</span><select data-pick="provider">
+    <option value="">Choose your provider…</option>
+    ${Object.keys(groups).sort().map(g => `<optgroup label="${esc(g)} backbone">${groups[g].map(([x, n]) =>
+      `<option value="${n}" ${cur === x ? "selected" : ""}>${esc(x.name)}${x.block ? " (block account)" : ""}</option>`).join("")}</optgroup>`).join("")}
+    <option value="other" ${p.host && !cur ? "selected" : ""}>Another server, typed in</option></select></label>
+    <p class="small muted pickinfo" style="margin:-6px 0 12px">${cur ? providerInfo(cur) : ""}</p>`;
+}
+const providerInfo = x => `${esc(x.backbone || "Unknown")} backbone${x.block ? " · pay per GB, good as backup" : ""} · set Connections to your plan's number`;
+function indexerPick(x) {
+  const cur = CAT.indexers.find(c => c.name === x.preset || (x.url && c.url === x.url));
+  return `<label class="field"><span>Indexer</span><select data-pick="indexer">
+    <option value="">Choose your indexer…</option>
+    ${CAT.indexers.map((c, n) => `<option value="${n}" ${cur === c ? "selected" : ""}>${esc(c.name)}</option>`).join("")}
+    <option value="other" ${x.url && !cur ? "selected" : ""}>Another Newznab indexer</option></select></label>
+    <input type="hidden" name="preset" value="${esc(cur ? cur.name : "")}"><input type="hidden" name="apiPath" value="${esc((cur && cur.apiPath) || x.apiPath || "/api")}">`;
+}
+function backboneNote(root) {
+  const seen = {};
+  root.querySelectorAll("[data-provider]").forEach(e => {
+    const h = $("[name=host]", e).value.trim(); if (!h) return;
+    const x = providerFor(h); if (!x || !x.backbone) return;
+    (seen[x.backbone] ||= []).push(x.name);
+  });
+  const dup = Object.entries(seen).find(([, names]) => names.length > 1);
+  const el = $("#backbonenote", root);
+  if (el) el.innerHTML = dup ? `<span class="meh">${dup[1].map(esc).join(" and ")} share the ${esc(dup[0])} backbone,</span> so one rarely fills the other's gaps. Pick a backup on another backbone.` : "";
+}
+const SAVED = "Saved · type to change";
+// each provider/indexer folds to one line (name, server, connections); new ones start open
+const foldHead = () => `<summary><div><h3 data-ename></h3><div class="sum" data-esum></div></div>
+    <button type="button" class="btn plain danger small" data-remove>Remove</button><svg class="chev" aria-hidden="true"><use href="#i-chev"/></svg></summary>`;
+function providerEntry(p = {}, i = 0, open = true) {
+  return `<details class="entry fe" data-provider ${open ? "open" : ""}>${foldHead()}<div class="fe-body">
+    ${providerPick(p)}
+    <div class="row"><label class="field"><span>Server</span><input type="text" name="host" value="${esc(p.host || "")}" placeholder="news.provider.example" required></label>
+      <label class="field"><span>Port</span><input type="number" name="port" value="${esc(p.port || 563)}"></label>
+      <label class="field"><span>Connections</span><input type="number" name="maxConnections" value="${esc(p.maxConnections || 20)}"></label></div>
+    <div class="row"><label class="field"><span>Username</span><input type="text" name="username" value="${esc(p.username || "")}" autocomplete="off"></label>
+      <label class="field"><span>Password</span><input type="password" name="password" placeholder="${p.has_password ? SAVED : ""}" autocomplete="new-password"></label></div>
+    <label class="check"><input type="checkbox" name="tls" ${p.tls === false ? "" : "checked"}><span>SSL/TLS</span></label>
+    <label class="check"><input type="checkbox" name="isBackup" ${p.isBackup ? "checked" : ""}><span>Backup only <span class="muted small">· only asked for what the others miss</span></span></label>
+    <button type="button" class="btn" data-test="usenet">Test login</button><p class="result"></p></div></details>`;
+}
+function indexerEntry(x = {}, open = true) {
+  return `<details class="entry fe" data-indexer ${open ? "open" : ""}>${foldHead()}<div class="fe-body">
+    ${indexerPick(x)}
+    <div class="row"><label class="field"><span>Name</span><input type="text" name="name" value="${esc(x.name || "")}" placeholder="My Indexer"></label>
+      <label class="field"><span>URL</span><input type="url" name="url" value="${esc(x.url || "")}" placeholder="https://indexer.example.com"></label></div>
+    <label class="field"><span>API key</span><input type="password" name="apikey" placeholder="${x.has_key ? SAVED : ""}" autocomplete="new-password"></label>
+    <button type="button" class="btn" data-test="indexer">Test API key</button><p class="result"></p></div></details>`;
+}
+// a provider's role: backup, or main — together with the other main ones, or its place in the order
+function roleBadge(box) {
+  const form = box.closest("form") || document;
+  if ($("[name=isBackup]", box).checked) { box.dataset.role = "backup"; return `<span class="role role-backup">Backup only</span>`; }
+  box.dataset.role = "main";
+  const mains = [...form.querySelectorAll("[data-provider]")].filter(e => !$("[name=isBackup]", e).checked);
+  const sw = $("[name=usenet_balanced]", form);
+  if (mains.length < 2) return `<span class="role role-main">Main</span>`;
+  if (!sw || sw.checked) return `<span class="role role-main">Main · together</span>`;
+  const n = mains.indexOf(box) + 1;
+  return `<span class="role role-main">Main · ${n === 1 ? "first" : n === 2 ? "second" : n + "th"}</span>`;
+}
+// the folded line of a provider/indexer, kept current while editing
+function entrySum(box) {
+  const v = n => ($(`[name=${n}]`, box) || {}).value || "";
+  if (box.matches("[data-provider]")) {
+    const host = v("host").trim(), x = providerFor(host), backup = $("[name=isBackup]", box).checked;
+    $("[data-ename]", box).innerHTML = `${esc((x && x.name) || host || "New provider")} ${roleBadge(box)}`;
+    $("[data-esum]", box).textContent = host ? `${host} · ${v("maxConnections") || "?"} connections` : "Not filled in yet";
+  } else {
+    let host = ""; try { host = new URL(v("url")).host; } catch (_) {}
+    $("[data-ename]", box).textContent = v("name").trim() || host || "New indexer";
+    $("[data-esum]", box).textContent = host || "Not filled in yet";
+  }
+}
+// time zone as a list grouped by region, from the browser's own list of IANA zones
+function tzField(current) {
+  let zones = [];
+  try { zones = Intl.supportedValuesOf("timeZone"); } catch (_) {}
+  const browser = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch (_) { return ""; } })();
+  const pick = current || browser || "UTC";
+  if (!zones.length) zones = [pick];
+  if (!zones.includes(pick)) zones.push(pick);
+  if (!zones.includes("UTC")) zones.push("UTC");
+  const groups = {};
+  for (const z of zones.sort()) (groups[z.includes("/") ? z.split("/")[0] : "Other"] ||= []).push(z);
+  const opt = z => `<option value="${esc(z)}" ${z === pick ? "selected" : ""}>${esc(z.replace(/_/g, " ").replace(/\//g, " / "))}</option>`;
+  return `<label class="field"><span>Time zone</span><select name="tz">${Object.entries(groups).map(([g, list]) =>
+    `<optgroup label="${esc(g)}">${list.map(opt).join("")}</optgroup>`).join("")}</select></label>
+    ${browser && browser !== pick ? `<p class="small muted" style="margin-top:-6px">This browser uses ${esc(browser.replace(/_/g, " "))}.</p>` : ""}`;
+}
+
+// Each section: a title, one line, more behind ⓘ, and the fields. Settings folds them, setup shows them.
+function settingsForm(s) {
+  return {
+    login: { title: "Your login", lead: "One login for every app and for Dojo.",
+      body: `<div class="row"><label class="field"><span>Username</span><input type="text" name="admin_user" value="${esc(s.admin_user || "admin")}" autocomplete="username"></label>
+      <label class="field"><span>Password</span><input type="password" name="admin_password" autocomplete="new-password" minlength="8" placeholder="8+ characters, no comma"></label></div>
+      ${tzField(s.tz)}` },
+    tz: { title: "Time zone", lead: "For schedules, logs and the nightly backup.", body: tzField(s.tz) },
+    usenet: { title: "Usenet providers", lead: "Where the files come from.",
+      more: "A second provider on a different backbone fills articles the first one is missing. Mark a pay-per-GB block account as backup, so it's only asked for those.",
+      body: `<label class="check" data-balance><input type="checkbox" name="usenet_balanced" ${s.usenet_balanced !== false ? "checked" : ""}><span>Use the main providers together <span class="muted small">· load-balanced</span></span></label>
+      <p class="small muted" data-balance style="margin:-8px 0 14px">${"On: AIOStreams spreads downloads across them by speed and free connections. Off: the first one does the work; the next steps in only when it misses an article or fails."}</p>
+      <div id="providers">${(s.providers.length ? s.providers : [{}]).map((p, i) => providerEntry(p, i, !p.host)).join("")}</div>
+      <p class="small" id="backbonenote"></p>
+      <div class="adder"><button type="button" class="btn" id="addprov">Add a provider</button></div>` },
+    indexers: { title: "Indexers", lead: "Where releases are found.",
+      more: "They go into Prowlarr, which Sonarr and Radarr search. Removing one here doesn't remove it from Prowlarr.",
+      body: `<div id="indexers">${s.indexers.map(x => indexerEntry(x, !x.url)).join("")}</div><div class="adder"><button type="button" class="btn" id="addidx">Add an indexer</button></div>` },
+    language: { title: "Audio language", lead: "Releases in this language beat better picture quality.",
+      more: "German 1080p beats English 2160p. Between two German releases, 2160p wins.",
+      body: `<label class="field"><span>Language</span><select name="language"><option value="none">None, rank by picture quality</option>
+        ${s.languages.map(l => `<option ${l === s.language ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <label class="check" data-lang><input type="checkbox" name="require_language" ${s.require_language ? "checked" : ""}><span>Only grab releases in this language</span></label>
+      <label class="field" data-wait><span>Otherwise wait for it (minutes)</span><input type="number" min="0" name="wait_minutes" value="${s.wait_minutes}"></label>` },
+    subtitles: { title: "Subtitles", lead: "Podnapisi and Gestdown are always on.",
+      more: "An OpenSubtitles.com account adds the biggest catalogue, about 20 downloads a day for free.",
+      body: `<div class="row"><label class="field"><span>OpenSubtitles.com username</span><input type="text" name="opensubtitles_user" value="${esc(s.opensubtitles_user)}" autocomplete="off" placeholder="optional"></label>
+      <label class="field"><span>Password</span><input type="password" name="opensubtitles_pass" placeholder="${s.has_opensubtitles_pass ? SAVED : ""}" autocomplete="new-password"></label></div>` },
+    livetv: { title: "Live TV", lead: "IPTV channels with a programme guide in Emby.",
+      more: "Dispatcharr turns your IPTV subscription into channels; you pick which ones in Dispatcharr. Watching Live TV in Emby needs Emby Premiere.",
+      body: `<label class="check"><input type="checkbox" name="iptv" ${s.iptv ? "checked" : ""}><span>Use Live TV</span></label>
+      <div id="tvfields" class="${s.iptv ? "" : "hidden"}">
+        <label class="field"><span>Provider type</span><select name="iptv_type">
+          <option value="xtream" ${s.iptv_type === "xtream" ? "selected" : ""}>Xtream Codes login</option>
+          <option value="m3u" ${s.iptv_type === "m3u" ? "selected" : ""}>M3U playlist link</option>
+          <option value="" ${s.iptv && !s.iptv_type ? "selected" : ""}>I'll add it in Dispatcharr myself</option></select></label>
+        <label class="field" data-tv="xtream m3u"><span>Server or playlist URL</span><input type="url" name="iptv_url" value="${esc(s.iptv_url)}"></label>
+        <div class="row" data-tv="xtream"><label class="field"><span>Username</span><input type="text" name="iptv_user" value="${esc(s.iptv_user)}" autocomplete="off"></label>
+          <label class="field"><span>Password</span><input type="password" name="iptv_pass" placeholder="${s.has_iptv_pass ? SAVED : ""}" autocomplete="new-password"></label></div>
+        <label class="field" data-tv="m3u"><span>Guide (XMLTV) URL</span><input type="url" name="iptv_epg_url" value="${esc(s.iptv_epg_url)}" placeholder="optional"></label>
+        <label class="field" data-tv="xtream m3u"><span>Streams at once</span><input type="number" min="1" name="iptv_max_streams" value="${s.iptv_max_streams}"></label>
+        <div data-tv="xtream m3u"><button type="button" class="btn" data-test="iptv">Test provider</button><p class="result"></p></div>
+        ${s.setup ? "" : `<div class="entry" style="margin-top:6px">
+          <div class="entry-head"><h3>Live TV in Activity</h3>${s.has_dispatcharr_key ? `<span class="good small">Connected</span>` : ""}</div>
+          <p class="lead-s">${s.has_dispatcharr_key ? "Dojo reads what's playing through Dispatcharr. Sign in again only to reconnect." : "Sign in once with your Dispatcharr login, so Activity can show what's playing there."}</p>
+          ${s.has_dispatcharr_key ? `<p style="margin:0 0 14px"><button type="button" class="btn quiet" data-dshow>Sign in again</button></p>` : ""}
+          <div data-dform class="${s.has_dispatcharr_key ? "hidden" : ""}">
+            <div class="row"><label class="field"><span>Dispatcharr username</span><input type="text" data-d="user" autocomplete="off"></label>
+              <label class="field"><span>Password</span><input type="password" data-d="pass" autocomplete="new-password"></label></div>
+            <button type="button" class="btn" data-dconnect>Connect</button><p class="result"></p></div></div>`}
+      </div>` },
+    notify: { title: "Notifications", lead: "A Discord message on grabs, imports and problems.",
+      body: `<label class="field"><span>Discord webhook</span><input type="url" name="discord_webhook" value="${esc(s.discord_webhook)}" placeholder="https://discord.com/api/webhooks/…"></label>` },
+    remote: { title: "Away from home", lead: "HTTPS addresses for Emby, Seerr and AIOStreams.",
+      more: "They become emby., request. and stream. under your domain. Point those names at your home and forward ports 80 and 443 to this machine. Dojo stays home-only.",
+      body: `<div class="row"><label class="field"><span>Domain</span><input type="text" name="domain" value="${esc(s.domain)}" placeholder="example.com"></label>
+      <label class="field"><span>E-mail for certificate notices</span><input type="email" name="acme_email" value="${esc(s.acme_email)}"></label></div>
+      <label class="check"><input type="checkbox" name="dojo_https" ${s.dojo_https ? "checked" : ""}><span>Dojo too, at dojo.<i>domain</i> — home network only</span></label>
+      <p class="small muted" style="margin:-6px 0 14px">An HTTPS address for Dojo, so phones can install it as a full app. It answers only devices on your home network; from the internet it refuses. It needs the same public DNS record as the others (for its certificate) and, at home, a rewrite of the name to this machine.</p>
+      <button type="button" class="btn" data-test="domain">Check DNS</button><p class="result"></p>` },
+    updates: { title: "Security updates", lead: "Debian installs them by itself every night.",
+      more: "Only security fixes, from Debian. Docker is left out: it updates together with ninjarr, because updating it restarts every container. Some fixes (the Linux kernel) only take effect after a restart.",
+      body: `<label class="check"><input type="checkbox" name="auto_reboot" ${s.auto_reboot ? "checked" : ""}><span>Restart at about 04:45 when an update needs it</span></label>
+      <p class="small muted" style="margin:-6px 0 14px">Off: Home tells you when a restart is due, with a Restart now button.</p>` },
+    backup: { title: "Backups", lead: "Nightly at about 04:30, on this machine's disk.",
+      more: "Download one now and then from System, so a copy lives somewhere else.",
+      body: `<label class="check"><input type="checkbox" name="backup_on" ${s.backup_schedule !== "off" ? "checked" : ""}><span>Back up every night</span></label>
+      <label class="field" style="max-width:220px"><span>Keep the last</span><input type="number" min="1" max="60" name="backup_keep" value="${s.backup_keep}"></label>` },
+  };
+}
+const leadP = x => x.lead ? `<p class="lead-s">${x.lead}${x.more ? info(x.more) : ""}</p>` : "";
+const plainSection = x => `<section class="section"><h2>${x.title}</h2>${leadP(x)}${x.body}</section>`;
+
+function bindForm(root) {
+  const changed = () => root.dispatchEvent(new Event("input", { bubbles: true }));
+  const tvSync = () => {
+    const on = $("[name=iptv]", root).checked, t = $("[name=iptv_type]", root).value;
+    $("#tvfields", root).classList.toggle("hidden", !on);
+    root.querySelectorAll("[data-tv]").forEach(x => x.classList.toggle("hidden", !x.dataset.tv.split(" ").includes(t)));
+  };
+  if ($("[name=iptv]", root)) { $("[name=iptv]", root).addEventListener("change", tvSync); $("[name=iptv_type]", root).addEventListener("change", tvSync); tvSync(); }
+  const langSync = () => {
+    const none = $("[name=language]", root).value === "none", only = $("[name=require_language]", root).checked;
+    $("[data-lang]", root).classList.toggle("hidden", none);
+    $("[data-wait]", root).classList.toggle("hidden", none || only);
+  };
+  if ($("[name=language]", root)) { $("[name=language]", root).addEventListener("change", langSync); $("[name=require_language]", root).addEventListener("change", langSync); langSync(); }
+  const addp = $("#addprov", root); if (addp) addp.onclick = () => { $("#providers", root).insertAdjacentHTML("beforeend", providerEntry({}, 1)); entrySum($("#providers", root).lastElementChild); changed(); };
+  const addi = $("#addidx", root); if (addi) addi.onclick = () => { $("#indexers", root).insertAdjacentHTML("beforeend", indexerEntry({})); entrySum($("#indexers", root).lastElementChild); changed(); };
+  root.addEventListener("change", e => {
+    const sel = e.target.closest("[data-pick]");
+    if (!sel) return;
+    const box = sel.closest(".entry"), set = (n, v) => { const x = $(`[name=${n}]`, box); if (x) x.type === "checkbox" ? (x.checked = v) : (x.value = v); };
+    if (sel.dataset.pick === "provider") {
+      const x = CAT.providers[+sel.value];
+      $(".pickinfo", box).innerHTML = x ? providerInfo(x) : "";
+      if (x) { set("host", x.host); set("port", x.port); set("tls", x.tls); set("maxConnections", x.connections);
+        if (x.block && box.previousElementSibling) set("isBackup", true); $("[name=username]", box).focus(); }
+      else if (sel.value === "other") { set("host", ""); $("[name=host]", box).focus(); }
+      backboneNote(root);
+    } else {
+      const x = CAT.indexers[+sel.value];
+      if (x) { set("name", x.name); set("url", x.url); set("preset", x.name); set("apiPath", x.apiPath); $("[name=apikey]", box).focus(); }
+      else { set("preset", ""); set("apiPath", "/api"); if (sel.value === "other") $("[name=url]", box).focus(); }
+    }
+    changed();
+  });
+  const balanceSync = () => {
+    const main = [...root.querySelectorAll("[data-provider]")].filter(e => !$("[name=isBackup]", e).checked && $("[name=host]", e).value.trim()).length;
+    root.querySelectorAll("[data-balance]").forEach(x => x.classList.toggle("hidden", main < 2));
+    root.querySelectorAll("[data-provider]").forEach(entrySum);   // roles depend on all of them
+  };
+  const sumOf = e => { const box = e.target.closest && e.target.closest("[data-provider], [data-indexer]"); if (box) entrySum(box); };
+  root.addEventListener("input", e => { if (e.target.name === "host") backboneNote(root); balanceSync(); sumOf(e); });
+  root.addEventListener("change", e => { balanceSync(); sumOf(e); });
+  root.querySelectorAll("[data-provider], [data-indexer]").forEach(entrySum);
+  backboneNote(root); balanceSync();
+  root.addEventListener("click", async e => {
+    const inf = e.target.closest("[data-info]");
+    if (inf) { e.preventDefault(); const h = inf.parentElement.nextElementSibling; h.classList.toggle("hidden"); inf.setAttribute("aria-expanded", !h.classList.contains("hidden")); return; }
+    const ds = e.target.closest("[data-dshow]");
+    if (ds) { ds.parentElement.remove(); $("[data-dform]", root).classList.remove("hidden"); return; }
+    const dc = e.target.closest("[data-dconnect]");
+    if (dc) {
+      const box = dc.closest(".entry"), out = dc.nextElementSibling;
+      dc.disabled = true; out.className = "result"; out.textContent = "Connecting…";
+      const r = await api("/api/dispatcharr/connect", { method: "POST", body: { username: $("[data-d=user]", box).value, password: $("[data-d=pass]", box).value } }).catch(() => ({ ok: false }));
+      dc.disabled = false; out.className = `result ${r.ok ? "ok" : "fail"}`; out.textContent = r.message || (r.ok ? "Connected" : "Didn't work");
+      if (r.ok) $("[data-d=pass]", box).value = "";
+      return;
+    }
+    const rm = e.target.closest("[data-remove]");
+    if (rm) { e.preventDefault(); rm.closest(".entry").remove(); backboneNote(root); balanceSync(); changed(); return; }
+    const t = e.target.closest("[data-test]");
+    if (!t) return;
+    const box = t.closest(".entry") || t.closest(".fold-body") || t.closest(".section") || t.parentElement;
+    const out = t.nextElementSibling;
+    const v = n => { const x = $(`[name=${n}]`, box); return x ? (x.type === "checkbox" ? x.checked : x.value) : ""; };
+    let body;
+    if (t.dataset.test === "usenet") body = { host: v("host"), port: v("port"), tls: v("tls"), username: v("username"), password: v("password") };
+    if (t.dataset.test === "indexer") body = { url: v("url"), apikey: v("apikey"), apiPath: v("apiPath") };
+    if (t.dataset.test === "iptv") body = { type: v("iptv_type"), url: v("iptv_url"), user: v("iptv_user"), password: v("iptv_pass") };
+    if (t.dataset.test === "domain") body = { domain: v("domain"), dojo_https: v("dojo_https") };
+    t.disabled = true; out.className = "result"; out.textContent = "Testing…";
+    const r = await api(`/api/test/${t.dataset.test}`, { method: "POST", body }).catch(() => ({ ok: false }));
+    t.disabled = false; out.className = `result ${r.ok ? "ok" : "fail"}`; out.textContent = r.message || (r.ok ? "Works" : "Didn't work");
+    if (t.dataset.test === "iptv" && r.ok && r.max_connections) { $("[name=iptv_max_streams]", root).value = r.max_connections; changed(); }
+  });
+}
+function collect(root) {
+  const v = n => { const x = $(`[name=${n}]`, root); return x ? (x.type === "checkbox" ? x.checked : x.value) : undefined; };
+  const list = (sel, names) => [...root.querySelectorAll(sel)].map(e => Object.fromEntries(names.map(n => {
+    const x = $(`[name=${n}]`, e); return [n, x.type === "checkbox" ? x.checked : x.value]; })));
+  const on = v("backup_on");
+  return {
+    admin_user: v("admin_user"), admin_password: v("admin_password"), tz: v("tz"),
+    providers: list("[data-provider]", ["host", "port", "maxConnections", "username", "password", "tls", "isBackup"]),
+    usenet_balanced: v("usenet_balanced"),
+    indexers: list("[data-indexer]", ["name", "url", "apikey", "preset", "apiPath"]),
+    language: v("language"), require_language: v("require_language"), wait_minutes: v("wait_minutes"),
+    opensubtitles_user: v("opensubtitles_user"), opensubtitles_pass: v("opensubtitles_pass"),
+    iptv: v("iptv"), iptv_type: v("iptv_type"), iptv_url: v("iptv_url"), iptv_user: v("iptv_user"), iptv_pass: v("iptv_pass"),
+    iptv_epg_url: v("iptv_epg_url"), iptv_max_streams: v("iptv_max_streams"),
+    discord_webhook: v("discord_webhook"), domain: v("domain"), acme_email: v("acme_email"), dojo_https: v("dojo_https"),
+    backup_schedule: on === undefined ? undefined : on ? "daily" : "off", backup_keep: v("backup_keep"),
+    auto_reboot: v("auto_reboot"),
+  };
+}
+// the one-line summary each folded section shows
+function summaries(c) {
+  const prov = (c.providers || []).filter(p => p.host.trim());
+  const pname = p => (providerFor(p.host) || {}).name || p.host;
+  const main = prov.filter(p => !p.isBackup), bk = prov.filter(p => p.isBackup);
+  const conns = main.reduce((a, p) => a + (+p.maxConnections || 0), 0);
+  const idx = (c.indexers || []).filter(x => x.url || x.name);
+  const none = `<span class="meh">None yet</span>`;
+  return {
+    tz: esc((c.tz || "").replace(/_/g, " ")),
+    usenet: prov.length ? `${esc(main.map(pname).join(", ") || "Backup only")}${main.length ? ` · ${conns} connections` : ""}${main.length > 1 ? (c.usenet_balanced ? " · load-balanced" : " · in order") : ""}${bk.length ? ` · backup ${esc(bk.map(pname).join(", "))}` : ""}` : none,
+    indexers: idx.length ? esc(idx.map(x => x.name || x.url).join(", ")) : none,
+    language: c.language === "none" ? "None, picture quality decides" : c.require_language ? `${esc(c.language)} only` : `${esc(c.language)} first · waits ${c.wait_minutes || 0} min`,
+    subtitles: `Podnapisi, Gestdown${c.opensubtitles_user ? ", OpenSubtitles.com" : ""}`,
+    livetv: c.iptv ? `On · ${{ xtream: "Xtream Codes", m3u: "M3U playlist" }[c.iptv_type] || "managed in Dispatcharr"}` : "Off",
+    notify: c.discord_webhook ? "Discord" : "Off",
+    remote: c.domain ? esc(c.domain) : "Home network only",
+    backup: c.backup_schedule === "off" ? `<span class="meh">Off</span>` : `Nightly · keeps ${esc(c.backup_keep)}`,
+    updates: c.auto_reboot ? "Automatic · restarts at 04:45 when needed" : "Automatic · you restart when needed",
+  };
+}
+const SECTIONS = ["usenet", "indexers", "language", "subtitles", "livetv", "remote", "notify", "backup", "updates", "tz"];
+async function pageSettings() {
+  const el = $("#page");
+  el.innerHTML = `<div class="sk-stack">${SECTIONS.map(() => sk(64)).join("")}</div>`;
+  const [s] = await Promise.all([api("/api/settings"), loadCatalog()]);
+  const f = settingsForm(s);
+  const fold = k => `<details class="fold" id="sec-${k}" data-sec="${k}"><summary><div><h3>${f[k].title}</h3><div class="sum" data-sum="${k}"></div></div>
+      <svg class="chev" aria-hidden="true"><use href="#i-chev"/></svg></summary><div class="fold-body">${leadP(f[k])}${f[k].body}</div></details>`;
+  el.innerHTML = `<div class="settings">
+    <nav class="snav" aria-label="Settings sections">${SECTIONS.map(k => `<a href="#settings" data-go="${k}">${f[k].title}</a>`).join("")}<a href="#settings" data-go="account">Account</a></nav>
+    <div><form id="sf" autocomplete="off">${SECTIONS.map(fold).join("")}</form>
+      <div class="fold static" id="sec-account"><div class="head"><div><h3>Account</h3><div class="sum">${esc(s.admin_user)} · change it on the VM with <code>./bootstrap.sh reconfigure</code></div></div></div></div>
+    </div></div>
+    <div class="savebar" id="savebar"><div class="inner"><span class="msg" id="smsg"></span>
+      <button class="btn quiet" id="discard">Discard</button><button class="btn primary" id="save">Save and apply</button></div></div>`;
+  const root = $("#sf");
+  bindForm(root);
+  const base = collect(root);
+  const update = () => {
+    const c = collect(root), sum = summaries(c);
+    root.querySelectorAll("[data-sum]").forEach(x => x.innerHTML = sum[x.dataset.sum]);
+    el.querySelectorAll("[data-go]").forEach(a => a.classList.toggle("warn", /class="(meh|bad)"/.test(sum[a.dataset.go] || "")));
+    const n = Object.keys(c).filter(k => JSON.stringify(c[k] ?? "") !== JSON.stringify(base[k] ?? "")).length;
+    S.dirty = n > 0;
+    $("#savebar").classList.toggle("show", S.dirty);
+    $("#smsg").innerHTML = S.dirty ? `${plural(n, "unsaved change")}<small>Applying takes about a minute.</small>` : "";
+  };
+  root.addEventListener("input", update); root.addEventListener("change", update); update();
+  el.querySelectorAll("[data-go]").forEach(a => a.onclick = e => {
+    e.preventDefault();
+    const sec = $(`#sec-${a.dataset.go}`); if (sec.tagName === "DETAILS") sec.open = true;
+    el.querySelectorAll("[data-go]").forEach(x => x.setAttribute("aria-current", x === a));
+    sec.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  });
+  $("#discard").onclick = () => { S.dirty = false; pageSettings(); };
+  if (S.openSection) { const a = $(`[data-go="${S.openSection}"]`, el); S.openSection = null; if (a) a.click(); }
+  $("#save").onclick = async () => {
+    $("#save").disabled = true;
+    const r = await api("/api/settings", { method: "POST", body: collect(root) }).catch(() => ({ ok: false }));
+    $("#save").disabled = false;
+    if (!r.ok) { toast(r.message || "Couldn't save.", "fail"); return; }
+    S.dirty = false; $("#savebar").classList.remove("show");
+    openJob(r.id, "Applying settings");
+  };
+}
+
+// ───────────────────────── system: updates, backups, maintenance
+async function pageSystem() {
+  const el = $("#page");
+  $("#pact").innerHTML = `<button class="btn primary" id="backupnow">Back up now</button>`;
+  $("#backupnow").onclick = () => runJob("backup");
+  el.innerHTML = `<div class="sk-stack">${sk(76)}${sk(30, "30%")}${sk(150)}${sk(120)}</div>`;
+  const [b, v, hr] = await Promise.all([api("/api/backups").catch(() => ({})), api("/api/versions").catch(() => ({})), api("/api/host").catch(() => ({}))]);
+  const h = hr && hr.host;
+  stamp();
+  const size = n => n > 2 ** 20 ? `${(n / 2 ** 20).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`;
+  const upd = v.update_available;
+  const images = Object.entries(v.images || {});
+  const list = b.backups || [];
+  el.innerHTML = `
+    <div class="card"><div><h3>ninjarr ${esc(v.ninjarr || "?")}${v.commit ? ` <span class="muted small" style="font-weight:400">${esc(v.commit)}</span>` : ""}</h3>
+      <div class="small">${upd === true ? `<span class="good">A newer version is available</span>` : upd === false ? `<span class="muted">Up to date</span>`
+        : `<span class="muted">Couldn't check for updates · </span><a href="#system" id="recheck" class="muted">try again</a>`}</div></div>
+      <button class="btn ${upd === true ? "primary" : ""}" data-job="update">${upd === true ? "Update now" : "Update"}</button></div>
+    <p class="note">Updating backs up first, then moves every app to the versions tested with the new release.</p>
+    ${images.length ? `<details class="versions"><summary>${images.length} apps on their tested versions</summary>
+      <div class="tablewrap"><table><tbody>${images.map(([k, t]) => `<tr><td>${esc(k)}</td><td class="tag">${esc(t)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
+
+    <h2>This machine</h2>${machineCard(h)}
+
+    <h2>Backups</h2>
+    ${b.visible === false ? `<div class="empty"><h3>Backups are kept elsewhere</h3><p>They go to a folder outside ninjarr's data folder, so Dojo can't list them.</p></div>`
+      : list.length ? `<div class="panel"><ul class="list blist">${list.map(x => `
+        <li><span><span class="when">${esc(when(x.mtime))}</span><span class="size">${size(x.size)}</span></span>
+        <span class="actions"><a class="btn quiet" href="/api/backups/${esc(x.name)}" download>Download</a>
+        <button class="btn plain danger" data-restore="${esc(x.name)}" data-when="${esc(when(x.mtime))}">Restore</button>
+        <button class="btn plain danger" data-delete="${esc(x.name)}" data-when="${esc(when(x.mtime))}">Delete</button></span></li>`).join("")}</ul></div>
+        <p class="note">${b.schedule === "off" ? `The nightly backup is off. Turn it on in Settings.` : `Nightly, the last ${b.keep} are kept.`} They live on this machine, so download one now and then.</p>`
+      : `<div class="empty"><h3>No backups yet</h3><p>Make the first one now. After that, one is made every night.</p></div>`}
+
+    <h2>Maintenance</h2>
+    <div class="panel">
+      <div class="task"><div><h3>Re-apply all settings</h3><p>Sets every app up again from ninjarr.env. Safe, and fixes most drift.</p></div><div class="actions"><button class="btn" data-job="wire">Re-apply</button></div></div>
+      <div class="task"><div><h3>Run the full check</h3><p>Every check from <code>./bootstrap.sh doctor</code>, with the log.</p></div><div class="actions"><button class="btn" data-job="doctor">Run</button></div></div>
+    </div>`;
+  el.querySelectorAll("[data-job]").forEach(x => x.onclick = () => runJob(x.dataset.job));
+  const re = $("#recheck"); if (re) re.onclick = e => { e.preventDefault(); pageSystem(); };
+  el.querySelectorAll("[data-delete]").forEach(x => x.onclick = async () => {
+    if (!(await ask({ title: `Delete the backup from ${x.dataset.when}?`, ok: "Delete", body: "It can't be brought back. Your other backups and the running stack stay as they are." }))) return;
+    x.disabled = true;
+    const ok = await quietJob(`delete-backup ${x.dataset.delete}`);
+    toast(ok ? "Backup deleted" : "Couldn't delete that backup.", ok ? "ok" : "fail");
+    pageSystem();
+  });
+  el.querySelectorAll("[data-restore]").forEach(x => x.onclick = async () => {
+    if (await ask({ title: `Restore the backup from ${x.dataset.when}?`, ok: "Restore",
+      body: "Every app goes back to that moment. Your current data is kept on the VM. The stack, Dojo included, restarts for about a minute." }))
+      runJob(`restore ${x.dataset.restore}`);
+  });
+}
+
+function machineCard(h) {
+  if (!h) return `<div class="card"><div><h3>No status yet</h3><div class="small muted">Updating ninjarr sets up automatic security updates and this status.</div></div>
+    <button class="btn" data-job="update">Update</button></div>`;
+  const days = Math.floor(h.uptime_s / 86400);
+  const lc = t => /^(Today|Yesterday)/.test(t) ? t[0].toLowerCase() + t.slice(1) : t;
+  const last = h.last_update ? `last updated ${lc(when(h.last_update))}${h.last_update_packages.length ? ` (${plural(h.last_update_packages.length, "package")})` : ""}` : "nothing needed so far";
+  return `<div class="card"><div><h3>${esc(h.os)}</h3>
+      <div class="small muted">Running for ${days ? plural(days, "day") : "less than a day"} · kernel ${esc(h.kernel)}</div>
+      <div class="small" style="margin-top:6px">${h.auto ? `<span class="good">Security updates install automatically</span> · ${last}` : `<span class="meh">Security updates aren't automatic yet</span>`}</div>
+      ${h.reboot_required ? `<div class="small meh" style="margin-top:4px">A restart finishes a security update${h.reboot_packages.length ? ` (${esc(h.reboot_packages.join(", "))})` : ""}${h.auto_reboot ? ", tonight at 04:45" : ""}.</div>` : ""}</div>
+    ${h.reboot_required ? `<button class="btn primary" data-job="reboot">Restart now</button>` : h.auto ? "" : `<button class="btn" data-job="update">Set up</button>`}</div>`;
+}
+
+// ───────────────────────── first-run setup
+const STEPS = [["login", "Login"], ["usenet", "Usenet"], ["indexers", "Indexers"], ["language", "Language"], ["extras", "Extras"], ["build", "Build"]];
+async function setupWizard() {
+  const [s] = await Promise.all([api("/api/settings"), loadCatalog()]);
+  const f = settingsForm(s);
+  const bodies = { login: plainSection(f.login), usenet: plainSection(f.usenet), indexers: plainSection(f.indexers), language: plainSection(f.language),
+    extras: plainSection(f.subtitles) + plainSection(f.livetv) + plainSection(f.remote), build: `<section class="section"><h2>Ready to build</h2>
+      <p class="lead-s">ninjarr saves your answers, downloads the apps (about 5 GB the first time) and connects them. This takes 5 to 15 minutes; the log shows here and in your terminal.</p>
+      <p class="result fail" id="berr"></p><button type="button" class="btn primary" id="build">Build my stack</button><p></p></section>` };
+  document.title = "Set up ninjarr · Dojo";
+  app.innerHTML = `<div class="setupwrap">${brand()}<h1>Set up ninjarr</h1>
+    <p class="lead">Six short steps. Test each login as you go; nothing is applied until you build.</p>
+    <div class="steps">${STEPS.map(([id, n], i) => `<span data-s="${id}">${i + 1}. ${n}</span>`).join("")}</div>
+    <form id="wf">${STEPS.map(([id]) => `<div data-step="${id}" class="hidden">${bodies[id]}</div>`).join("")}</form>
+    <div class="nav-steps"><button class="btn" id="back">Back</button><button class="btn primary" id="next">Next</button></div></div>`;
+  const root = $("#wf");
+  bindForm(root);
+  if (!s.indexers.length) $("#indexers", root).insertAdjacentHTML("beforeend", indexerEntry({}));
+  let i = 0;
+  const check = id => {
+    const v = n => ($(`[name=${n}]`, root) || {}).value || "";
+    if (id === "login") {
+      if (!/^[A-Za-z0-9._-]+$/.test(v("admin_user"))) return "The username can have letters, digits, dot, dash and underscore.";
+      const p = v("admin_password"); if (p.length < 8 || p.includes(",") || p.includes("'") || p.trim() !== p) return "The password needs 8+ characters, no comma or apostrophe, and no space at either end.";
+    }
+    if (id === "usenet" && !root.querySelector("[data-provider] [name=host]").value.trim()) return "Add your usenet provider's server.";
+    return "";
+  };
+  const show = () => {
+    STEPS.forEach(([id], n) => {
+      $(`[data-step=${id}]`, root).classList.toggle("hidden", n !== i);
+      const tag = $(`[data-s=${id}]`); n === i ? tag.setAttribute("aria-current", "step") : tag.removeAttribute("aria-current");
+      tag.classList.toggle("done", n < i);
+    });
+    $("#back").style.visibility = i ? "visible" : "hidden";
+    $("#next").classList.toggle("hidden", i === STEPS.length - 1);
+    window.scrollTo(0, 0);
+  };
+  $("#back").onclick = () => { i = Math.max(0, i - 1); show(); };
+  $("#next").onclick = () => {
+    const err = check(STEPS[i][0]);
+    if (err) { toast(err, "fail"); return; }
+    document.querySelectorAll(".toast.t-fail").forEach(t => t.remove());
+    i = Math.min(STEPS.length - 1, i + 1); show();
+  };
+  $("#build").onclick = async () => {
+    $("#build").disabled = true; $("#berr").textContent = "";
+    const r = await api("/api/settings", { method: "POST", body: collect(root) });
+    if (!r.ok) { $("#berr").textContent = r.message; $("#build").disabled = false; return; }
+    openJob(r.id, "Building your stack", st => {
+      $("#build").disabled = false;
+      if (st === "ok") {
+        $("#jobstate").innerHTML = `<span class="state-ok">Done. Close this and sign in with the login you just chose.</span>`;
+        $("#jobclose").onclick = () => { $("#jobdlg").close(); boot(); };
+      }
+    });
+  };
+  show();
+}
+
+boot();
+</script>
+</body>
+</html>

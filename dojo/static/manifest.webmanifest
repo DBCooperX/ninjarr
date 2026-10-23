@@ -1,0 +1,21 @@
+{
+  "name": "Dojo · ninjarr",
+  "short_name": "Dojo",
+  "description": "ninjarr's control panel: health, activity, settings, backups",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#070707",
+  "theme_color": "#070707",
+  "icons": [
+    { "src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icon-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Activity", "url": "/#activity", "icons": [{ "src": "/static/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Settings", "url": "/#settings", "icons": [{ "src": "/static/icon-192.png", "sizes": "192x192" }] },
+    { "name": "System", "url": "/#system", "icons": [{ "src": "/static/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
