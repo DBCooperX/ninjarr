@@ -1,0 +1,96 @@
+{
+"updated": "2026-10-23",
+"source": "Prowlarr indexer definitions",
+"indexers": [
+{
+"name": "abNZB",
+"url": "https://abnzb.com",
+"apiPath": "/api"
+},
+{
+"name": "altHUB",
+"url": "https://api.althub.co.za",
+"apiPath": "/api"
+},
+{
+"name": "AnimeTosho (Usenet)",
+"url": "https://feed.animetosho.org",
+"apiPath": "/api"
+},
+{
+"name": "DOGnzb",
+"url": "https://api.dognzb.cr",
+"apiPath": "/api"
+},
+{
+"name": "DrunkenSlug",
+"url": "https://drunkenslug.com",
+"apiPath": "/api"
+},
+{
+"name": "GingaDADDY",
+"url": "https://www.gingadaddy.com",
+"apiPath": "/api"
+},
+{
+"name": "Miatrix",
+"url": "https://www.miatrix.com",
+"apiPath": "/api"
+},
+{
+"name": "Newz69",
+"url": "https://newz69.keagaming.com",
+"apiPath": "/api"
+},
+{
+"name": "NinjaCentral",
+"url": "https://ninjacentral.co.za",
+"apiPath": "/api"
+},
+{
+"name": "Nzb.life",
+"url": "https://api.nzb.life",
+"apiPath": "/api"
+},
+{
+"name": "NZBCat",
+"url": "https://nzb.cat",
+"apiPath": "/api"
+},
+{
+"name": "NZBFinder",
+"url": "https://nzbfinder.ws",
+"apiPath": "/api"
+},
+{
+"name": "NZBgeek",
+"url": "https://api.nzbgeek.info",
+"apiPath": "/api"
+},
+{
+"name": "NZBNDX",
+"url": "https://www.nzbndx.com",
+"apiPath": "/api"
+},
+{
+"name": "NzbNoob",
+"url": "https://www.nzbnoob.com",
+"apiPath": "/api"
+},
+{
+"name": "NzbPlanet",
+"url": "https://api.nzbplanet.net",
+"apiPath": "/api"
+},
+{
+"name": "NZBStars",
+"url": "https://nzbstars.com",
+"apiPath": "/api"
+},
+{
+"name": "Tabula Rasa",
+"url": "https://www.tabula-rasa.pw",
+"apiPath": "/api/v1/api"
+}
+]
+}

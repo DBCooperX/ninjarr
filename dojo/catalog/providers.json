@@ -1,0 +1,616 @@
+{
+"updated": "2026-10-23",
+"source": "usenet.rexum.space",
+"providers": [
+{
+"name": "AnonyNews",
+"host": "news-us.anonynews.com",
+"port": 563,
+"tls": true,
+"connections": 50,
+"backbone": "Omicron",
+"block": false,
+"url": "https://anonynews.com/"
+},
+{
+"name": "Astraweb",
+"host": "news.astraweb.com",
+"port": 563,
+"tls": true,
+"connections": 50,
+"backbone": "Omicron",
+"block": true,
+"url": "https://www.astraweb.com/"
+},
+{
+"name": "Binary Boy",
+"host": "news.binaryboy.com",
+"port": 119,
+"tls": false,
+"connections": 20,
+"backbone": "UsenetExpress",
+"block": false,
+"url": "https://www.binaryboy.com/server.php"
+},
+{
+"name": "BinTube",
+"host": "us.bintube.com",
+"port": 563,
+"tls": true,
+"connections": 30,
+"backbone": "Omicron",
+"block": false,
+"url": "https://www.bintube.com/"
+},
+{
+"name": "Blocknews",
+"host": "usnews.blocknews.net",
+"port": 563,
+"tls": true,
+"connections": 100,
+"backbone": "NetNews",
+"block": true,
+"url": "https://blocknews.net/"
+},
+{
+"name": "Bulknews",
+"host": "news.bulknews.eu",
+"port": 563,
+"tls": true,
+"connections": 10,
+"backbone": "Abavia",
+"block": true,
+"url": "https://www.bulknews.eu/"
+},
+{
+"name": "CheapNews",
+"host": "block.cheapnews.eu",
+"port": 563,
+"tls": true,
+"connections": 40,
+"backbone": "Abavia",
+"block": true,
+"url": "https://www.cheapnews.eu/"
+},
+{
+"name": "EasyNews",
+"host": "news.easynews.com",
+"port": 563,
+"tls": true,
+"connections": 60,
+"backbone": "Omicron",
+"block": false,
+"url": "https://www.easynews.com/"
+},
+{
+"name": "EasyUsenet",
+"host": "reader.easyusenet.nl",
+"port": 563,
+"tls": true,
+"connections": 20,
+"backbone": "Abavia",
+"block": false,
+"url": "https://www.easyusenet.com"
+},
+{
+"name": "Eweka",
+"host": "news.eweka.nl",
+"port": 563,
+"tls": true,
+"connections": 50,
+"backbone": "Eweka Internet Services",
+"block": false,
+"url": "https://www.eweka.nl/"
+},
+{
+"name": "ExtremeUsenet",
+"host": "news.extremeusenet.nl",
+"port": 563,
+"tls": true,
+"connections": 4,
+"backbone": "Omicron",
+"block": false,
+"url": "https://www.extremeusenet.nl/"
+},
+{
+"name": "Fast-Usenet",
+"host": "news.fastusenet.org",
+"port": 563,
+"tls": true,
+"connections": 50,
+"backbone": "Omicron",
+"block": true,
+"url": "https://www.fastusenet.org/"
+},
+{
+"name": "FreeDiscussions",
+"host": "power.freediscussions.com",
+"port": 563,
+"tls": true,
+"connections": 16,
+"backbone": "Abavia",
+"block": true,
+"url": "https://www.freediscussions.com/"
+},
+{
+"name": "Frugal Usenet",
+"host": "news.frugalusenet.com",
+"port": 563,
+"tls": true,
+"connections": 100,
+"backbone": "NetNews",
+"block": true,
+"url": "https://frugalusenet.com/"
+},
+{
+"name": "Gebruikhet",
+"host": "news.gebruikhet.net",
+"port": 119,
+"tls": false,
+"connections": 4,
+"backbone": "Abavia",
+"block": true,
+"url": "https://www.gebruikhet.net/"
+},
+{
+"name": "Giganews",
+"host": "news.giganews.com",
+"port": 563,
+"tls": true,
+"connections": 100,
+"backbone": "Giganews",
+"block": false,
+"url": "https://giganews.com/"
+},
+{
+"name": "HitNews",
+"host": "news.hitnews.com",
+"port": 563,
+"tls": true,
+"connections": 100,
+"backbone": "Abavia",
+"block": true,
+"url": "https://hitnews.com/"
+},
+{
+"name": "iLoad USENET",
+"host": "news.iload-usenet.com",
+"port": 119,
+"tls": false,
+"connections": 20,
+"backbone": "Omicron",
+"block": true,
+"url": "https://www.iload-usenet.com/"
+},
+{
+"name": "Ixinews",
+"host": "news.ixinews.com",
+"port": 563,
+"tls": true,
+"connections": 30,
+"backbone": "Omicron",
+"block": true,
+"url": "https://ixinews.com/"
+},
+{
+"name": "LatinUsenet",
+"host": "news.latinusenet.com",
+"port": 563,
+"tls": true,
+"connections": 10,
+"backbone": "Abavia",
+"block": true,
+"url": "https://latinusenet.com"
+},
+{
+"name": "MaximumUSENET",
+"host": "europe-ssl.maximumusenet.com",
+"port": 563,
+"tls": true,
+"connections": 50,
+"backbone": "UsenetExpress",
+"block": true,
+"url": "https://www.maximumusenet.com/"
+},
+{
+"name": "NewsDemon",
+"host": "uswest.newsdemon.com",
+"port": 563,
+"tls": true,
+"connections": 50,
+"backbone": "UsenetExpress",
+"block": true,
+"url": "https://www.newsdemon.com/"
+},
+{
+"name": "Newsgroup Ninja",
+"host": "news.newsgroup.ninja",
+"port": 563,
+"tls": true,
+"connections": 50,
+"backbone": "Omicron",
+"block": false,
+"url": "https://www.newsgroup.ninja/"
+},
+{
+"name": "NewsgroupDirect",
+"host": "super.newsgroupdirect.com",
+"port": 563,
+"tls": true,
+"connections": 20,
+"backbone": "Giganews",
+"block": true,
+"url": "https://www.newsgroupdirect.com/"
+},
+{
+"name": "Newshosting",
+"host": "news.newshosting.com",
+"port": 563,
+"tls": true,
+"connections": 30,
+"backbone": "Omicron",
+"block": false,
+"url": "https://www.newshosting.com/"
+},
+{
+"name": "NewsLeecher",
+"host": "news.newsleecher.com",
+"port": 563,
+"tls": true,
+"connections": 30,
+"backbone": "Omicron",
+"block": false,
+"url": "https://www.newsleecher.com/"
+},
+{
+"name": "NewsXS",
+"host": "reader2.newsxs.nl",
+"port": 563,
+"tls": true,
+"connections": 10,
+"backbone": "Abavia",
+"block": true,
+"url": "https://www.newsxs.nl/"
+},
+{
+"name": "Ngroups",
+"host": "us.ngroups.net",
+"port": 563,
+"tls": true,
+"connections": 30,
+"backbone": "Omicron",
+"block": true,
+"url": "https://ngroups.net/"
+},
+{
+"name": "Premium News",
+"host": "news.premium-news.net",
+"port": 119,
+"tls": false,
+"connections": 20,
+"backbone": "Elbracht",
+"block": false,
+"url": "https://www.premium-news.com/"
+},
+{
+"name": "Prepaid-Usenet",
+"host": "news.nl.prepaid-usenet.de",
+"port": 119,
+"tls": false,
+"connections": 10,
+"backbone": "Omicron",
+"block": true,
+"url": "https://www.prepaid-usenet.de/"
+},
+{
+"name": "PureUsenet",
+"host": "news.pureusenet.nl",
+"port": 563,
+"tls": true,
+"connections": 8,
+"backbone": "Omicron",
+"block": false,
+"url": "https://www.pureusenet.nl/"
+},
+{
+"name": "Shemes",
+"host": "newsfarm.atl.shemes.com",
+"port": 119,
+"tls": false,
+"connections": 50,
+"backbone": "Omicron",
+"block": false,
+"url": "https://shemes.com/"
+},
+{
+"name": "SimonNews",
+"host": "news.simonews.com",
+"port": 563,
+"tls": true,
+"connections": 8,
+"backbone": "Omicron",
+"block": false,
+"url": "https://www.simonews.com/"
+},
+{
+"name": "Spotnews",
+"host": "reader.spotnews.nl",
+"port": 563,
+"tls": true,
+"connections": 20,
+"backbone": "Abavia",
+"block": true,
+"url": "https://spotnews.nl"
+},
+{
+"name": "StingyUsenet",
+"host": "news.stingyusenet.com",
+"port": 563,
+"tls": true,
+"connections": 50,
+"backbone": "Abavia",
+"block": false,
+"url": "https://stingyusenet.com/"
+},
+{
+"name": "SunnyUsenet",
+"host": "news.sunnyusenet.com",
+"port": 563,
+"tls": true,
+"connections": 30,
+"backbone": "Omicron",
+"block": false,
+"url": "https://www.sunnyusenet.com/"
+},
+{
+"name": "Supernews",
+"host": "news.supernews.com",
+"port": 119,
+"tls": false,
+"connections": 30,
+"backbone": "Giganews",
+"block": false,
+"url": "https://www.supernews.com/"
+},
+{
+"name": "theCubeNet",
+"host": "news.thecubenet.com",
+"port": 563,
+"tls": true,
+"connections": 20,
+"backbone": "UsenetExpress",
+"block": true,
+"url": "https://www.thecubenet.com/"
+},
+{
+"name": "ThunderNews",
+"host": "news.thundernews.com",
+"port": 563,
+"tls": true,
+"connections": 50,
+"backbone": "UsenetExpress",
+"block": true,
+"url": "https://www.thundernews.com/"
+},
+{
+"name": "TurboUsenet",
+"host": "reader.turbousenet.com",
+"port": 563,
+"tls": true,
+"connections": 50,
+"backbone": "Abavia",
+"block": false,
+"url": "https://turbousenet.com/"
+},
+{
+"name": "TweakNews",
+"host": "news.tweaknews.eu",
+"port": 563,
+"tls": true,
+"connections": 30,
+"backbone": "Base IP",
+"block": true,
+"url": "https://www.tweaknews.eu/"
+},
+{
+"name": "United Newsserver",
+"host": "news.united-newsserver.de",
+"port": 119,
+"tls": false,
+"connections": 8,
+"backbone": "Elbracht",
+"block": false,
+"url": "https://www.united-newsserver.de/"
+},
+{
+"name": "Usenet-News",
+"host": "news.us.usenet-news.net",
+"port": 563,
+"tls": true,
+"connections": 60,
+"backbone": "Omicron",
+"block": true,
+"url": "https://usenet-news.net/"
+},
+{
+"name": "Usenet.Farm",
+"host": "news4.usenet.farm",
+"port": 119,
+"tls": false,
+"connections": 30,
+"backbone": "Its Hosted",
+"block": true,
+"url": "https://usenet.farm/"
+},
+{
+"name": "Usenet.se",
+"host": "news.usenet.se",
+"port": 119,
+"tls": false,
+"connections": 60,
+"backbone": "Omicron",
+"block": false,
+"url": "https://usenet.se/"
+},
+{
+"name": "Usenet4u",
+"host": "news4.usenet4u.nl",
+"port": 119,
+"tls": false,
+"connections": 18,
+"backbone": "Omicron",
+"block": true,
+"url": "https://www.usenet4u.nl/"
+},
+{
+"name": "UsenetAgency",
+"host": "reader.usenet.agency",
+"port": 563,
+"tls": true,
+"connections": 25,
+"backbone": "Abavia",
+"block": false,
+"url": "https://usenet.agency/"
+},
+{
+"name": "UsenetBucket",
+"host": "reader.usenetbucket.com",
+"port": 119,
+"tls": false,
+"connections": 20,
+"backbone": "Omicron",
+"block": false,
+"url": "https://usenetbucket.com/"
+},
+{
+"name": "UsenetDeal",
+"host": "news.usenetdeal.com",
+"port": 563,
+"tls": true,
+"connections": 10,
+"backbone": "Abavia",
+"block": true,
+"url": "https://usenetdeal.com/"
+},
+{
+"name": "Usenetdiscounter.com",
+"host": "reader.usenetdiscounter.com",
+"port": 563,
+"tls": true,
+"connections": 5,
+"backbone": "Abavia",
+"block": false,
+"url": "https://www.usenetdiscounter.com/"
+},
+{
+"name": "UsenetExpress",
+"host": "news.usenetexpress.com",
+"port": 563,
+"tls": true,
+"connections": 50,
+"backbone": "UsenetExpress",
+"block": true,
+"url": "https://www.usenetexpress.com/"
+},
+{
+"name": "UsenetNews",
+"host": "green.usenetnews.net",
+"port": 563,
+"tls": true,
+"connections": 50,
+"backbone": "UsenetExpress",
+"block": false,
+"url": "https://usenetnews.net/"
+},
+{
+"name": "UsenetNow",
+"host": "usnews.usenetnow.net",
+"port": 563,
+"tls": true,
+"connections": 100,
+"backbone": "NetNews",
+"block": false,
+"url": "https://usenetnow.net/"
+},
+{
+"name": "UsenetPrime",
+"host": "bonus.usenetprime.com",
+"port": 563,
+"tls": true,
+"connections": 20,
+"backbone": "Abavia",
+"block": true,
+"url": "https://usenetprime.com/"
+},
+{
+"name": "Usenetserver",
+"host": "news.usenetserver.com",
+"port": 563,
+"tls": true,
+"connections": 20,
+"backbone": "Omicron",
+"block": false,
+"url": "https://www.usenetserver.com/"
+},
+{
+"name": "UsenetStorm",
+"host": "ssl.usenetstorm.com",
+"port": 119,
+"tls": false,
+"connections": 50,
+"backbone": "Omicron",
+"block": false,
+"url": "https://www.usenetstorm.com/"
+},
+{
+"name": "Usenext",
+"host": "high.usenext.de",
+"port": 563,
+"tls": true,
+"connections": 30,
+"backbone": "Abavia",
+"block": false,
+"url": "https://www.usenext.com/"
+},
+{
+"name": "UseNight",
+"host": "reader.usenight.com",
+"port": 563,
+"tls": true,
+"connections": 20,
+"backbone": "Abavia",
+"block": false,
+"url": "https://usenight.com/"
+},
+{
+"name": "ViperNews",
+"host": "news.vipernews.com",
+"port": 119,
+"tls": false,
+"connections": 5,
+"backbone": "Uzo Reto",
+"block": true,
+"url": "https://www.vipernews.com/"
+},
+{
+"name": "XLned",
+"host": "news.xlned.com",
+"port": 563,
+"tls": true,
+"connections": 2,
+"backbone": "Omicron",
+"block": false,
+"url": "https://www.xlned.com/"
+},
+{
+"name": "XS News",
+"host": "reader.xsnews.nl",
+"port": 563,
+"tls": true,
+"connections": 10,
+"backbone": "Abavia",
+"block": true,
+"url": "https://www.xsnews.com/"
+}
+]
+}

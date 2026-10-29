@@ -1,0 +1,51 @@
+name: lint
+
+on:
+  push: {branches: [main]}
+  pull_request:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: shellcheck
+        run: |
+          sudo apt-get install -y --no-install-recommends shellcheck
+          shellcheck --version
+          shellcheck -x -S style bootstrap.sh lib/*.sh proxmox/*.sh migrate/*.sh ci/*.sh docs/demo.sh
+
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: validate compose (with and without the proxy profile)
+        run: |
+          mkdir -p .state/caddy && touch .state/aiostreams.env && printf 'services: {}\n' > .state/compose.override.yml
+          docker compose --project-directory compose --env-file versions.env --env-file ninjarr.env.example -f compose/stack.yml -f .state/compose.override.yml config >/dev/null
+          docker compose --project-directory compose --env-file versions.env --env-file ninjarr.env.example -f compose/stack.yml -f .state/compose.override.yml --profile proxy --profile iptv config >/dev/null
+      - name: build dojo image
+        run: docker build -t ninjarr-dojo-ci ./dojo
+
+  dojo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: syntax-check the dojo backend
+        run: |
+          python3 -m py_compile dojo/app.py dojo/history.py dojo/push.py dojo/upstream.py ci/newer_versions.py
+          node --check dojo/static/dojo.js && node --check dojo/static/sw.js
+
+  env-example:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - name: ninjarr.env.example parses and its JSON is valid
+        run: |
+          set -a; . ./ninjarr.env.example; set +a
+          echo "$USENET_PROVIDERS" | jq -e 'type == "array"' >/dev/null
+          echo "$INDEXERS" | jq -e 'type == "array"' >/dev/null

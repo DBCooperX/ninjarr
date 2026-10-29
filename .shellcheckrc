@@ -1,0 +1,6 @@
+# ninjarr's shell style, for shellcheck (run by .github/workflows/lint.yml):
+# - `cmd && ok "…" || warn "…"`: ok, info, note and d_ok only print and never fail, so this reads as
+#   if/else; anything else between && and || is written as a real if.
+disable=SC2015
+# - LOG, ROOT, BASE and friends are set in bootstrap.sh and lib/core.sh, which every lib is sourced from.
+disable=SC2153

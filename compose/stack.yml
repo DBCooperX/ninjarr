@@ -1,0 +1,164 @@
+# ninjarr — the whole stack on one Docker host.
+#
+# How the pieces share files:
+#   AIOStreams mounts its usenet library (FUSE) at /mnt/aiostreams inside its container. The host
+#   folder ${NINJARR_DATA}/stream is bound to /mnt with "rshared", so that mount shows up on the
+#   host, and every other container binds the same folder with "rslave" to see it at the same path.
+#   Sonarr/Radarr import a *symlink* into ${NINJARR_DATA}/library pointing into /mnt/aiostreams;
+#   Emby follows it and AIOStreams streams the bytes from usenet on demand. Nothing is downloaded.
+#
+# Values come from ninjarr.env (passed with --env-file by bootstrap.sh).
+# No image comes from Docker Hub (lscr.io, ghcr.io and AWS ECR Public only), so a fresh install
+# never runs into Docker Hub's anonymous pull limit.
+
+name: ninjarr
+
+x-arr: &arr
+  restart: unless-stopped
+  networks: [ninjarr]
+  environment:
+    PUID: ${PUID}
+    PGID: ${PGID}
+    TZ: ${TZ}
+
+networks:
+  ninjarr:
+    name: ninjarr
+
+services:
+
+  aiostreams:
+    image: ghcr.io/viren070/aiostreams:${AIOSTREAMS_TAG:?see versions.env}
+    container_name: aiostreams
+    restart: unless-stopped
+    networks: [ninjarr]
+    env_file: [../.state/aiostreams.env]
+    environment:
+      TZ: ${TZ}
+    ports: ["3000:3000"]
+    volumes:
+      - ${NINJARR_DATA}/appdata/aiostreams:/app/data
+      - ${NINJARR_DATA}/stream:/mnt:rshared
+    cap_add: [SYS_ADMIN]
+    devices: ["/dev/fuse:/dev/fuse:rwm"]
+    security_opt: ["apparmor:unconfined"]
+
+  prowlarr:
+    <<: *arr
+    image: lscr.io/linuxserver/prowlarr:${PROWLARR_TAG:?see versions.env}
+    container_name: prowlarr
+    ports: ["9696:9696"]
+    volumes:
+      - ${NINJARR_DATA}/appdata/prowlarr:/config
+
+  sonarr:
+    <<: *arr
+    image: lscr.io/linuxserver/sonarr:${SONARR_TAG:?see versions.env}
+    container_name: sonarr
+    ports: ["8989:8989"]
+    volumes:
+      - ${NINJARR_DATA}/appdata/sonarr:/config
+      - ${NINJARR_DATA}/library:/library
+      - ${NINJARR_DATA}/stream:/mnt:rslave
+    depends_on: [aiostreams, prowlarr]
+
+  radarr:
+    <<: *arr
+    image: lscr.io/linuxserver/radarr:${RADARR_TAG:?see versions.env}
+    container_name: radarr
+    ports: ["7878:7878"]
+    volumes:
+      - ${NINJARR_DATA}/appdata/radarr:/config
+      - ${NINJARR_DATA}/library:/library
+      - ${NINJARR_DATA}/stream:/mnt:rslave
+    depends_on: [aiostreams, prowlarr]
+
+  bazarr:
+    <<: *arr
+    image: lscr.io/linuxserver/bazarr:${BAZARR_TAG:?see versions.env}
+    container_name: bazarr
+    ports: ["6767:6767"]
+    volumes:
+      - ${NINJARR_DATA}/appdata/bazarr:/config
+      - ${NINJARR_DATA}/library:/library
+      - ${NINJARR_DATA}/stream:/mnt:ro,rslave
+    depends_on: [sonarr, radarr]
+
+  emby:
+    <<: *arr
+    image: lscr.io/linuxserver/emby:${EMBY_TAG:?see versions.env}
+    container_name: emby
+    ports: ["8096:8096"]
+    volumes:
+      - ${NINJARR_DATA}/appdata/emby:/config
+      - ${NINJARR_DATA}/library:/library:ro
+      - ${NINJARR_DATA}/stream:/mnt:ro,rslave
+    depends_on: [aiostreams]
+
+  # Seerr runs as uid 1000 inside its image and ignores PUID/PGID; its config dir must be 1000:1000.
+  seerr:
+    image: ghcr.io/seerr-team/seerr:${SEERR_TAG:?see versions.env}
+    container_name: seerr
+    init: true
+    restart: unless-stopped
+    networks: [ninjarr]
+    environment:
+      TZ: ${TZ}
+    ports: ["5055:5055"]
+    volumes:
+      - ${NINJARR_DATA}/appdata/seerr:/app/config
+    depends_on: [emby, sonarr, radarr]
+
+  # Dojo, the control panel — built locally from dojo/; reads the data folder (disk use, backups, the library links)
+  dojo:
+    build: ../dojo
+    image: ninjarr-dojo:local
+    container_name: dojo
+    restart: unless-stopped
+    networks: [ninjarr]
+    ports: ["1337:5000"]
+    environment:
+      TZ: ${TZ}            # the watch history's hours and days in your time zone
+    volumes:
+      # ninjarr's own folder, read-only: Dojo can't change anything the host runs. It writes only
+      # two places: the job queue (the host runs a fixed list of jobs from it, bootstrap.sh run-jobs)
+      # and its own folder, where changed settings wait for the host to check and take them over.
+      - ..:/ninjarr:ro
+      - ../.state/jobs/queue:/ninjarr/.state/jobs/queue
+      - ../.state/dojo:/ninjarr/.state/dojo
+      - ${NINJARR_DATA}:/data:ro
+      # Dojo's own data (the watch history), writable, and in every backup with the apps' data
+      - ${NINJARR_DATA}/appdata/dojo:/dojo-data
+
+  # Optional IPTV: only started when IPTV='yes' (bootstrap enables the "iptv" profile).
+  # Emby reaches it as http://dispatcharr:9191 for the channel list and the guide.
+  dispatcharr:
+    image: ghcr.io/dispatcharr/dispatcharr:${DISPATCHARR_TAG:?see versions.env}
+    container_name: dispatcharr
+    restart: unless-stopped
+    networks: [ninjarr]
+    profiles: [iptv]
+    ports: ["9191:9191"]
+    environment:
+      DISPATCHARR_ENV: aio
+      REDIS_HOST: localhost
+      CELERY_BROKER_URL: redis://localhost:6379/0
+      TZ: ${TZ}
+    volumes:
+      - ${NINJARR_DATA}/appdata/dispatcharr:/data
+
+  # Only started when a domain is configured (bootstrap enables the "proxy" profile).
+  caddy:
+    image: public.ecr.aws/docker/library/caddy:${CADDY_TAG:?see versions.env}
+    container_name: caddy
+    restart: unless-stopped
+    networks: [ninjarr]
+    profiles: [proxy]
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      # a folder, not the file itself: rewriting a single bind-mounted file replaces its inode and
+      # the container keeps reading the old one
+      - ../.state/caddy:/etc/caddy:ro
+      - ${NINJARR_DATA}/appdata/caddy/data:/data
+      - ${NINJARR_DATA}/appdata/caddy/config:/config
+    depends_on: [emby, seerr, aiostreams]

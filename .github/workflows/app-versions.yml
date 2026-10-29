@@ -1,0 +1,66 @@
+# The version bot: every night, looks for newer app images than versions.env pins, builds and
+# checks the whole stack with them on a fresh machine (each one tried on its own first, with an
+# automatic rollback like Dojo's "Try it"), and releases the ones that pass as a new patch version.
+# Every ninjarr install then sees it under System → What's new. Nobody has to wait for a person.
+#
+# Turn it off by disabling this workflow in the Actions tab, or set the repository variable
+# APP_VERSIONS_AUTORELEASE to "no" to only run the checks.
+name: app versions
+
+on:
+  schedule: [{cron: "17 2 * * *"}]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: app-versions
+  cancel-in-progress: false
+
+jobs:
+  check-and-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: anything newer?
+        id: look
+        run: |
+          python3 ci/newer_versions.py versions.env | tee newer.txt
+          echo "found=$([ -s newer.txt ] && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+
+      - name: make room for the images
+        if: steps.look.outputs.found == 'yes'
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
+      - name: build, try each newer version, build again with the ones that passed
+        if: steps.look.outputs.found == 'yes'
+        run: sudo ci/app-versions.sh
+
+      - name: release
+        if: steps.look.outputs.found == 'yes' && vars.APP_VERSIONS_AUTORELEASE != 'no'
+        run: |
+          git diff --quiet -- versions.env && { echo "nothing passed, nothing to release"; exit 0; }
+          cur=$(sed -n 's/^NINJARR_VERSION="\(.*\)"/\1/p' bootstrap.sh)
+          next=$(echo "$cur" | awk -F. '{printf "%d.%d.%d", $1, $2, $3 + 1}')
+          sed -i "s/^NINJARR_VERSION=\".*\"/NINJARR_VERSION=\"$next\"/" bootstrap.sh
+          {
+            echo "ninjarr $next: newer app versions"
+            echo
+            echo "Built and checked on a fresh machine by the version bot: each app on its"
+            echo "own first, then all together, upgrading an existing install."
+            echo
+            sudo cat .state/release-note.txt
+          } > /tmp/msg
+          git config user.name "ninjarr version bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add versions.env bootstrap.sh
+          git commit -F /tmp/msg
+          git push
+
+      - name: what happened
+        if: always()
+        run: |
+          [ -f .ninjarr.log ] && sudo tail -n 200 .ninjarr.log || true
