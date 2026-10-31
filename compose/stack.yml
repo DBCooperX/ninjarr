@@ -8,6 +8,10 @@
 #   Emby follows it and AIOStreams streams the bytes from usenet on demand. Nothing is downloaded.
 #
 # Values come from ninjarr.env (passed with --env-file by bootstrap.sh).
+#
+# Every app has a memory ceiling (mem_limit, e.g. EMBY_MEM='8g' in ninjarr.env to change one): an
+# app that runs away is stopped and restarted by Docker, instead of the whole VM running out of
+# memory and freezing. Dojo shows which app it was.
 # No image comes from Docker Hub (lscr.io, ghcr.io and AWS ECR Public only), so a fresh install
 # never runs into Docker Hub's anonymous pull limit.
 
@@ -30,6 +34,8 @@ services:
   aiostreams:
     image: ghcr.io/viren070/aiostreams:${AIOSTREAMS_TAG:?see versions.env}
     container_name: aiostreams
+    mem_limit: ${AIOSTREAMS_MEM:-4g}
+    memswap_limit: ${AIOSTREAMS_MEM:-4g}
     restart: unless-stopped
     networks: [ninjarr]
     env_file: [../.state/aiostreams.env]
@@ -47,6 +53,8 @@ services:
     <<: *arr
     image: lscr.io/linuxserver/prowlarr:${PROWLARR_TAG:?see versions.env}
     container_name: prowlarr
+    mem_limit: ${PROWLARR_MEM:-1g}
+    memswap_limit: ${PROWLARR_MEM:-1g}
     ports: ["9696:9696"]
     volumes:
       - ${NINJARR_DATA}/appdata/prowlarr:/config
@@ -55,6 +63,8 @@ services:
     <<: *arr
     image: lscr.io/linuxserver/sonarr:${SONARR_TAG:?see versions.env}
     container_name: sonarr
+    mem_limit: ${SONARR_MEM:-2g}
+    memswap_limit: ${SONARR_MEM:-2g}
     ports: ["8989:8989"]
     volumes:
       - ${NINJARR_DATA}/appdata/sonarr:/config
@@ -66,6 +76,8 @@ services:
     <<: *arr
     image: lscr.io/linuxserver/radarr:${RADARR_TAG:?see versions.env}
     container_name: radarr
+    mem_limit: ${RADARR_MEM:-2g}
+    memswap_limit: ${RADARR_MEM:-2g}
     ports: ["7878:7878"]
     volumes:
       - ${NINJARR_DATA}/appdata/radarr:/config
@@ -77,6 +89,8 @@ services:
     <<: *arr
     image: lscr.io/linuxserver/bazarr:${BAZARR_TAG:?see versions.env}
     container_name: bazarr
+    mem_limit: ${BAZARR_MEM:-2g}
+    memswap_limit: ${BAZARR_MEM:-2g}
     ports: ["6767:6767"]
     volumes:
       - ${NINJARR_DATA}/appdata/bazarr:/config
@@ -88,6 +102,8 @@ services:
     <<: *arr
     image: lscr.io/linuxserver/emby:${EMBY_TAG:?see versions.env}
     container_name: emby
+    mem_limit: ${EMBY_MEM:-6g}
+    memswap_limit: ${EMBY_MEM:-6g}
     ports: ["8096:8096"]
     volumes:
       - ${NINJARR_DATA}/appdata/emby:/config
@@ -99,6 +115,8 @@ services:
   seerr:
     image: ghcr.io/seerr-team/seerr:${SEERR_TAG:?see versions.env}
     container_name: seerr
+    mem_limit: ${SEERR_MEM:-2g}
+    memswap_limit: ${SEERR_MEM:-2g}
     init: true
     restart: unless-stopped
     networks: [ninjarr]
@@ -114,6 +132,8 @@ services:
     build: ../dojo
     image: ninjarr-dojo:local
     container_name: dojo
+    mem_limit: ${DOJO_MEM:-1g}
+    memswap_limit: ${DOJO_MEM:-1g}
     restart: unless-stopped
     networks: [ninjarr]
     ports: ["1337:5000"]
@@ -135,6 +155,8 @@ services:
   dispatcharr:
     image: ghcr.io/dispatcharr/dispatcharr:${DISPATCHARR_TAG:?see versions.env}
     container_name: dispatcharr
+    mem_limit: ${DISPATCHARR_MEM:-4g}
+    memswap_limit: ${DISPATCHARR_MEM:-4g}
     restart: unless-stopped
     networks: [ninjarr]
     profiles: [iptv]
@@ -151,6 +173,8 @@ services:
   caddy:
     image: public.ecr.aws/docker/library/caddy:${CADDY_TAG:?see versions.env}
     container_name: caddy
+    mem_limit: ${CADDY_MEM:-512m}
+    memswap_limit: ${CADDY_MEM:-512m}
     restart: unless-stopped
     networks: [ninjarr]
     profiles: [proxy]

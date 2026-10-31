@@ -757,6 +757,33 @@ def api_health():
     return jsonify(checks=shared_health())
 
 
+def gb(mb):
+    return f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{mb} MB"
+
+
+def memory_check(hs):
+    """The VM's memory, from the host's status file: which apps use the most, and any app that was
+    stopped and restarted for running out of memory (its ceiling, compose/stack.yml) this week."""
+    m = (hs or {}).get("memory")
+    if not m:
+        return check("Host", "Memory", "ok", "")
+    used = m["total_mb"] - m["available_mb"]
+    top = ", ".join(f"{a['name'].capitalize()} {gb(a['mb'])}" for a in (m.get("apps") or [])[:3])
+    oom = [o for o in m.get("oom") or [] if o.get("app") in SERVICES and time.time() - o["at"] < 7 * 86400]
+    if oom:
+        last = oom[-1]
+        name = last["app"].capitalize()
+        lim = next((a["limit_mb"] for a in m.get("apps") or [] if a["name"] == last["app"]), None)
+        what = f"hit its memory ceiling ({gb(lim)})" if last.get("ceiling") and lim else "ran out of memory"
+        more = f" ({len(oom)} times this week)" if len(oom) > 1 else ""
+        return check("Host", "Memory", "warn", f"{name} {what} on {datetime.fromtimestamp(last['at']).strftime('%a %d %b, %H:%M')}{more} "
+                     f"and was cut off there; the rest of the VM kept running. If it keeps happening, raise it with "
+                     f"{last['app'].upper()}_MEM in ninjarr.env.")
+    if m["available_mb"] < 0.1 * m["total_mb"]:
+        return check("Host", "Memory", "warn", f"almost full: {gb(used)} of {gb(m['total_mb'])} in use · most: {top}")
+    return check("Host", "Memory", "ok", f"{gb(used)} of {gb(m['total_mb'])} in use · most: {top}")
+
+
 def health_checks(env):
     out = []
     restart = lambda s: {"job": f"restart {s}", "label": f"Restart {s.capitalize()}"}
@@ -890,6 +917,7 @@ def health_checks(env):
                              f"Emby has the {name} GPU, but hardware acceleration is off in its Transcoding settings." if off
                              else f"Emby transcodes on the {name} GPU",
                              {"open": 8096, "path": "/web/index.html#!/transcoding", "label": "Open Emby"} if off else None))
+    out.append(memory_check(hs))
     du = shutil.disk_usage(DATA)
     pct = round(du.used * 100 / du.total)
     out.append(check("Host", "Disk", "ok" if pct < 90 else "warn", f"{pct}% used, {du.free // 2**30} GB free"))
@@ -2536,6 +2564,18 @@ def watch_for_push():
                            "/#home", tag="restart")
                 if due != bool(PUSH.seen("restart")):
                     PUSH.mark("restart", due)
+                # an app stopped and restarted for running out of memory (the VM kept running)
+                ooms = [o for o in ((hs.get("memory") or {}).get("oom") or []) if o.get("app") in SERVICES]
+                seen_at = PUSH.seen("oom", None)
+                fresh = [o for o in ooms if seen_at is not None and o["at"] > seen_at]
+                if fresh and _notifier[0].wanted("broken"):
+                    o = fresh[-1]
+                    notify("broken", f"{o['app'].capitalize()} ran out of memory",
+                           "It was cut off at its memory ceiling and everything else kept running. Home → Memory has the details.", "/#home", tag="oom")
+                if ooms and (seen_at is None or ooms[-1]["at"] > seen_at):
+                    PUSH.mark("oom", ooms[-1]["at"])     # first look only remembers; later ones announce
+                elif seen_at is None:
+                    PUSH.mark("oom", 0)
             if n % 60 == 1 and _notifier[0].wanted("update"):
                 news = news_for(git_head(), current_tags(env))
                 if news and news.get("behind") and news.get("sha") and PUSH.seen("update") != news["sha"]:

@@ -95,6 +95,7 @@ prepare_host() {
   ok "data in $d (library, app configs, stream mount point)"
 
   ensure_shared_mount "$d/stream"
+  ensure_swap
   seed_arr_config sonarr   8989 "$SONARR_API_KEY"
   seed_arr_config radarr   7878 "$RADARR_API_KEY"
   seed_arr_config prowlarr 9696 "$PROWLARR_API_KEY"
@@ -105,6 +106,29 @@ prepare_host() {
   write_caddyfile
   ensure_gpu_driver
   write_compose_override
+}
+
+# A small swap file. Without any swap, a VM that runs out of memory doesn't stop the biggest
+# process cleanly: it grinds to a halt, and even Proxmox's Reboot can't get through. With swap (and
+# each app's memory ceiling in compose/stack.yml) it slows down instead, and the runaway app is
+# restarted. Only made when the machine has no swap at all; a container host (LXC) is left alone.
+ensure_swap() {
+  if [[ -n "$(swapon --noheadings --show 2>/dev/null)" ]]; then ok "swap: $(free -h | awk '/^Swap:/ {print $2}')"; return 0; fi
+  if systemd-detect-virt --container >/dev/null 2>&1; then info "swap: none (a container can't have its own)"; return 0; fi
+  local f=/swapfile size=4G
+  if [[ ! -f $f ]]; then
+    if [[ "$(findmnt -no FSTYPE /)" == btrfs ]]; then
+      btrfs filesystem mkswapfile --size "$size" "$f" >>"$LOG" 2>&1 || { warn "swap: could not make $f"; return 0; }
+    else
+      { fallocate -l "$size" "$f" || dd if=/dev/zero of="$f" bs=1M count=4096 status=none; } 2>>"$LOG" || { warn "swap: could not make $f"; return 0; }
+      chmod 600 "$f"; mkswap "$f" >>"$LOG" 2>&1
+    fi
+  fi
+  swapon "$f" 2>>"$LOG" || { warn "swap: could not turn on $f"; return 0; }
+  grep -qs "^$f " /etc/fstab || printf '%s none swap sw 0 0\n' "$f" >>/etc/fstab
+  # use it as a last resort, not routinely
+  printf 'vm.swappiness = 10\n' >/etc/sysctl.d/90-ninjarr-swap.conf; sysctl -q -w vm.swappiness=10 2>/dev/null || true
+  ok "swap: $size safety buffer at $f"
 }
 
 # The library mount only reaches the other containers if the host folder sits on a mount with
