@@ -202,6 +202,7 @@ So *German 4K* beats *German 1080p*, which beats *English 4K*. An English file i
 - **It depends on usenet.** When a release disappears, a replacement is found overnight. A rare title with no complete copy left can't be replaced.
 - **Settings ninjarr manages are locked** in AIOStreams' dashboard. Change them in Dojo.
 - **Every app has a memory ceiling.** An app that runs away is cut off at its ceiling instead of freezing the whole VM, and Dojo tells you which one (Home → Memory, and a notification). Raise one with e.g. `EMBY_MEM='8g'` in `ninjarr.env`. ninjarr also adds a small swap file when the VM has none.
+- **Stats → System** shows the VM itself, apart from the streaming numbers: CPU, memory, how much of the time apps wait for memory, network and disk, each app against its ceiling, and where its memory is heading. Home warns before trouble: an app growing towards its ceiling, the VM short of memory, swap held all day, DNS lookups piling up, the disk filling.
 - **Sonarr and Radarr always ask for the login** in the browser, even at home.
 - **Coming from SABnzbd and a NAS?** There's nothing to carry over. Build fresh and re-add series in batches.
 - **Security:** Dojo has no Docker access and can't change ninjarr's files. It asks the host to run a fixed list of jobs, and the host checks every setting it hands over. `ninjarr.env` is read as plain settings, never run.

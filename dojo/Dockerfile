@@ -5,7 +5,7 @@ FROM lscr.io/linuxserver/baseimage-alpine:3.22
 RUN apk add --no-cache python3 py3-flask py3-requests py3-cryptography
 
 WORKDIR /app
-COPY app.py history.py push.py upstream.py ./
+COPY app.py history.py push.py upstream.py sysstats.py ./
 COPY templates ./templates
 COPY static ./static
 COPY catalog/*.json ./catalog/

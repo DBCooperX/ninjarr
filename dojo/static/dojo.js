@@ -140,6 +140,7 @@ function shell() {
 }
 // how: "push" (a click), "replace" (first load), "pop" (the browser's back/forward), "stay" (re-render)
 async function go(p, how = "push") {
+  if (p.includes("/")) { const [page, sec] = p.split("/"); if (page === "stats" && sec === "system") S.stab = "system"; else S.openSection = sec; p = page; }
   const asked = p;
   p = OLD[p] || p;
   if (!PAGES.some(([id]) => id === p)) p = "home";
@@ -321,7 +322,9 @@ const PORTS = { Sonarr: 8989, Radarr: 7878, Prowlarr: 9696, Seerr: 5055, Emby: 8
 const src = (l, html) => l ? `<a class="src" href="${esc(lanUrl(l.port) + (l.path || ""))}" target="_blank" rel="noopener" title="Open in ${esc(l.app)}">${html}</a>` : html;
 const at = (app, path, html) => src({ port: PORTS[app], path, app }, html);
 // the app's icon, passed on by Dojo (so it also shows when Dojo is opened over HTTPS)
-function appIcon(name, src = `/api/appicon/${name.toLowerCase()}`) {
+// the apps' own icons, through Dojo; Dojo's is its own, and Caddy (which has none to ask for) gets a padlock: it does the HTTPS
+function appIcon(name, src = name.toLowerCase() === "dojo" ? "/static/mark.png" : `/api/appicon/${name.toLowerCase()}`) {
+  if (name.toLowerCase() === "caddy") return `<svg class="appicon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="#22b638" stroke-width="2.4" stroke-linecap="round"/><rect x="4.5" y="10.5" width="15" height="11" rx="2.5" fill="#22b638"/><circle cx="12" cy="15.4" r="1.7" fill="#0c0a09"/><path d="M12 16.5v2.2" stroke="#0c0a09" stroke-width="1.6" stroke-linecap="round"/></svg>`;
   if (!src) return `<span class="appicon letter" aria-hidden="true">${esc(name[0])}</span>`;
   return `<img class="appicon" src="${esc(src)}" alt=""
     onerror="this.outerHTML='<span class=&quot;appicon letter&quot; aria-hidden=&quot;true&quot;>${esc(name[0])}</span>'">`;
@@ -467,26 +470,33 @@ async function pageStats() {
   S.stab = S.stab || "watching";
   S.win = pref("period.stats", "7d");
   if (!["24h", "7d", "30d", "90d", "all"].includes(S.win)) S.win = "7d";
+  S.swin = pref("period.system", "24h") === "7d" ? "7d" : "24h";
   const tabs = [["watching", "Watching"], ["history", "History"], ["timeline", "Timeline"]];
+  const tab = ([k, n]) => `<button data-stab="${k}" aria-pressed="${S.stab === k}">${n}</button>`;
   const head = () => {
     const period = S.stab === "watching" && (W.view === "stats" || W.view === "person");
-    return `<div class="subnav"><div class="seg" role="group" aria-label="Show">${tabs.map(([k, n]) => `<button data-stab="${k}" aria-pressed="${S.stab === k}">${n}</button>`).join("")}</div>
-      ${period ? periodSeg(["24h", "7d", "30d", "90d", "all"]) : ""}</div>`;
+    // streaming on the left; the VM itself apart, on its own
+    return `<div class="subnav"><div class="stabs"><div class="seg" role="group" aria-label="Streaming">${tabs.map(tab).join("")}</div>
+      <div class="seg seg-sys" role="group" aria-label="The VM">${tab(["system", "System"])}</div></div>
+      ${period ? periodSeg(["24h", "7d", "30d", "90d", "all"]) : ""}
+      ${S.stab === "system" ? `<div class="seg" role="group" aria-label="Period">${["24h", "7d"].map(x => `<button data-sw="${x}" aria-pressed="${x === S.swin}">${x}</button>`).join("")}</div>` : ""}</div>`;
   };
   const bindHead = () => {
-    el.querySelectorAll("[data-stab]").forEach(b => b.onclick = () => { S.stab = b.dataset.stab; if (S.stab !== "timeline") W.view = S.stab === "history" ? "history" : "stats"; pageStats(); });
+    el.querySelectorAll("[data-stab]").forEach(b => b.onclick = () => { S.stab = b.dataset.stab; if (!["timeline", "system"].includes(S.stab)) W.view = S.stab === "history" ? "history" : "stats"; pageStats(); });
     el.querySelectorAll("[data-w]").forEach(b => b.onclick = () => { setPref("period.stats", b.dataset.w); pageStats(); });
+    el.querySelectorAll("[data-sw]").forEach(b => b.onclick = () => { setPref("period.system", b.dataset.sw); pageStats(); });
   };
   S.timers.forEach(clearInterval); S.timers = [];
   el.innerHTML = head() + `<div class="sk-stack">${sk(76)}${sk(30, "45%")}${sk(140)}${sk(120)}</div>`; bindHead();
   const load = async () => {
-    if (S.stab !== "timeline") S.stab = W.view === "history" ? "history" : W.view === "stats" ? "watching" : S.stab;
-    const html = S.stab === "timeline" ? await timeline() : await watching();
+    if (!["timeline", "system"].includes(S.stab)) S.stab = W.view === "history" ? "history" : W.view === "stats" ? "watching" : S.stab;
+    const html = S.stab === "timeline" ? await timeline() : S.stab === "system" ? await systemStats() : await watching();
     if (html == null) return;
     stamp();
     el.innerHTML = head() + html; bindHead();
     el.querySelectorAll("[data-tlf]").forEach(b => b.onclick = () => { S.tlf = b.dataset.tlf; load(); });
-    if (S.stab !== "timeline") bindWatching(el, load);
+    if (S.stab === "system") bindCharts(el);
+    else if (S.stab !== "timeline") bindWatching(el, load);
   };
   await load();
   poll(load, S.stab === "timeline" ? 15000 : 60000);
@@ -597,7 +607,7 @@ function colChart(cfg) {
   return `${legend}<div class="chart" data-chart='${esc(JSON.stringify(cfg))}'><div class="tip" hidden></div></div>`;
 }
 // draws a chart at its container's real width, so text and bars stay crisp at any size
-function drawChart({ labels, series, height = 180, unit = "", every, grouped = false }, width) {
+function drawChart({ labels, series, height = 180, unit = "", suffix = "", every, grouped = false }, width) {
   const n = labels.length, W0 = Math.max(240, width), H0 = height, L = 34, B = 22, T = 8;
   const totals = labels.map((_, i) => grouped ? Math.max(...series.map(s => s.values[i] || 0)) : series.reduce((a, s) => a + (s.values[i] || 0), 0));
   const max = Math.max(...totals, 0);
@@ -625,7 +635,7 @@ function drawChart({ labels, series, height = 180, unit = "", every, grouped = f
       });
     }
     if (i % step === 0) g += `<text x="${cx}" y="${H0 - 6}" class="tick" text-anchor="middle">${esc(lab)}</text>`;
-    const tip = JSON.stringify({ t: lab, rows: series.map(s => [s.name, fmt(s.values[i] || 0), s.color]), total: series.length > 1 && !grouped ? fmt(totals[i]) : null });
+    const tip = JSON.stringify({ t: lab, rows: series.map(s => [s.name, fmt(s.values[i] || 0) + suffix, s.color]), total: series.length > 1 && !grouped ? fmt(totals[i]) + suffix : null });
     g += `<rect class="hit" x="${L + band * i}" y="${T}" width="${band}" height="${H0 - T - B}" data-tip='${esc(tip)}' tabindex="0"/>`;
   });
   return `<svg viewBox="0 0 ${W0} ${H0}" width="${W0}" height="${H0}" role="img" aria-label="${esc(series.map(s => s.name).join(", "))}">${g}</svg>`;
@@ -715,6 +725,84 @@ function reasonsTable(reasons) {
         <td>${esc(x.players.join(", "))}${x.more_players ? ` <span class="muted">+${x.more_players}</span>` : ""}</td>
         <td><span class="${cls}">${label}.</span> <span class="muted">${esc(h.what)}</span></td><td class="muted"><b class="rlabel">What helps: </b>${esc(h.help)}</td></tr>`; }).join("")}
   </tbody></table></div>`;
+}
+
+// Stats → System: the VM itself — not what's being watched. Right now, the last day or week,
+// each app against its memory ceiling and where it's heading, and DNS pile-ups if there were any.
+const gbTxt = mb => mb == null ? "–" : mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+function spark(values, top) {
+  const w = 132, h = 30, n = values.length, max = Math.max(top || 0, ...values.map(v => v || 0), 1);
+  let d = "", pen = false;
+  values.forEach((v, i) => {
+    if (v == null) { pen = false; return; }
+    const x = (n > 1 ? i / (n - 1) : 0) * (w - 2) + 1, y = h - 2 - (h - 4) * v / max;
+    d += `${pen ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`; pen = true;
+  });
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true">
+    ${top ? `<line x1="0" x2="${w}" y1="2" y2="2" class="ceil"/>` : ""}<path d="${d}"/></svg>`;
+}
+function trendTxt(t) {
+  if (t.state === "collecting") return `<span class="muted">learning · about ${t.left_h} h to go</span>`;
+  if (t.state === "steady") return `<span class="muted">steady${Math.abs(t.per_day) >= 20 ? ` · ${t.per_day > 0 ? "+" : ""}${gbTxt(t.per_day)} a day` : ""}</span>`;
+  const left = t.to_limit_days == null ? "" : t.to_limit_days < 0.5 ? " · at its ceiling within hours" : t.to_limit_days < 1.5 ? " · ceiling in about a day" : ` · ceiling in about ${Math.round(t.to_limit_days)} days`;
+  return `<span class="${t.to_limit_days != null && t.to_limit_days <= 7 ? "meh" : "muted"}">grows ${gbTxt(t.per_day)} a day${left}</span>`;
+}
+async function systemStats() {
+  const d = await api(`/api/system?window=${S.swin}`).catch(() => null);
+  if (!d) return null;
+  if (!d.sampled) return `<div class="empty"><h3 class="sub">No readings yet</h3><p>The VM measures itself every 5 minutes; the first numbers show here shortly after an update.</p></div>`;
+  const N = d.now, used = N.mem_total_mb - N.mem_avail_mb, span = S.swin === "7d" ? "7 days" : "24 hours";
+  const dpct = N.disk_size_mb ? Math.round(100 * N.disk_used_mb / N.disk_size_mb) : null;
+  const dk = d.disk.state === "filling" ? (d.disk.to_full_days <= 90 ? `<span class="meh">full in about ${d.disk.to_full_days} days</span>` : `+${gbTxt(d.disk.per_day)} a day`)
+    : d.disk.state === "steady" ? "not filling up" : "";
+  const wait = N.wait_some, waitCls = wait >= 10 ? "meh" : "";
+  const unit = S.swin === "7d" ? "3 hours" : "half hour";
+  const chart = (title, cfg, cap) => `<div><h3 class="sub">${title}</h3><div class="panel wchart">${colChart({ labels: d.labels, height: 150, ...cfg })}<p class="cap">${cap}</p></div></div>`;
+  const one = (name, k) => [{ name, color: "var(--s1)", values: d.series[k] }];
+  const dns = d.dns, oom = d.oom.filter(o => Date.now() / 1000 - o.at < 7 * 86400);
+  const net = n => n ? `<span title="in · out">↓ ${n.in} · ↑ ${n.out}</span>` : "–";
+  return `
+    <div class="now">
+      <div><b>${N.cpu_pct == null ? "–" : Math.round(N.cpu_pct) + "%"}</b><span>CPU now${N.cores ? ` · ${N.cores} cores` : ""}</span></div>
+      <div><b>${gbTxt(used)}</b><span>of ${gbTxt(N.mem_total_mb)} memory in use</span></div>
+      <div><b class="${waitCls}">${wait == null ? "–" : (wait < 0.1 ? "0" : wait.toFixed(1)) + "%"}</b><span>of the last minute waiting for memory</span></div>
+      ${N.swap_mb ? `<div><b>${gbTxt(N.swap_used_mb)}</b><span>of ${gbTxt(N.swap_mb)} swap in use</span></div>` : ""}
+      ${dpct != null ? `<div><b>${dpct}%</b><span>of ${gbTxt(N.disk_size_mb)} disk used${dk ? ` · ${dk}` : ""}</span></div>` : ""}
+    </div>
+    <div class="wfacts">
+      <span>App ceilings add up to <b>${gbTxt(d.ceilings_mb)}</b> of <b>${gbTxt(N.mem_total_mb)}</b> — they rarely all peak at once</span>
+      ${oom.length ? `<span class="meh">${plural(oom.length, "app")} cut off at the ceiling this week</span>` : ""}
+      ${dns.piles_7d ? `<span class="meh">DNS piled up ${plural(dns.piles_7d, "time")} this week</span>` : ""}
+    </div>
+
+    <div class="wchap"><h2 class="chap">Over ${span}</h2></div>
+    <div class="wgrid">
+      ${chart("Memory in use", { unit: "", suffix: " GB", series: one("In use", "mem") }, `The most in use in each ${unit}, in GB, of ${gbTxt(N.mem_total_mb)}.`)}
+      ${chart("Waiting for memory", { suffix: "%", series: one("Waiting", "wait") }, `The worst 5 minutes in each ${unit}: how much of the time apps were stuck waiting for memory. Near 0 is normal; it climbs before a VM freezes.`)}
+      ${chart("CPU", { suffix: "%", series: one("CPU", "cpu") }, `Average in each ${unit}, all cores together. Emby converting a video shows up here.`)}
+      ${chart("Network", { suffix: " Mbit/s", grouped: true, series: [{ name: "In", color: "var(--s1)", values: d.series.in }, { name: "Out", color: "var(--s2)", values: d.series.out }] },
+        `Average Mbit/s through the VM's network card in each ${unit}: streams to your players, downloads, everything.`)}
+    </div>
+
+    <div class="wchap"><h2 class="chap">Apps</h2></div>
+    <div class="tablewrap"><table class="ptable systable"><thead><tr><th>App</th><th>Memory</th><th class="sp-c">Last ${span}</th><th class="tr-c">Where it's heading</th><th>CPU</th><th>Network <span class="muted">Mbit/s</span></th></tr></thead><tbody>
+      ${d.apps.map(a => `<tr><td>${appIcon(a.label)}${esc(a.label)}</td>
+        <td class="memc"><div class="mem-t"><b>${gbTxt(a.mb)}</b>${a.limit_mb ? `<span class="muted"> of ${gbTxt(a.limit_mb)}</span>` : ""}</div>
+          ${a.limit_mb ? `<span class="hb-t"><span style="width:${Math.min(100, Math.max(2, 100 * a.mb / a.limit_mb))}%${a.mb > 0.85 * a.limit_mb ? ";background:var(--warn)" : ""}"></span></span>` : ""}
+          <div class="tr-m small">${trendTxt(a.trend)}</div></td>
+        <td class="sp-c">${spark(a.spark, a.limit_mb)}</td><td class="tr-c">${trendTxt(a.trend)}</td>
+        <td class="num">${a.cpu == null ? "–" : Math.round(a.cpu) + "%"}</td><td class="num">${net(a.net)}</td></tr>`).join("")}
+    </tbody></table></div>
+    <p class="cap">Memory and its line against the app's ceiling (the dashed top) · where it's heading: the lowest it falls back to, over two days or more · CPU as of the last reading (100% is one core) · network: in and out over the last 5 minutes.</p>
+
+    ${dns.piles_7d ? `<div class="wchap"><h2 class="chap">DNS pile-ups</h2></div>
+    <p class="lead-s">Docker answers the apps' name lookups. When more than it can hold are waiting at once, they fail until it catches up. It often comes with memory running short — compare with Waiting for memory above.</p>
+    <div class="wgrid"><div class="tablewrap"><table class="ptable"><thead><tr><th>Day</th><th>Pile-ups</th></tr></thead><tbody>
+      ${dns.days.map(x => `<tr><td>${esc(x.day)}</td><td class="num">${x.n}</td></tr>`).join("")}</tbody></table></div>
+      ${dns.names.length ? `<div class="tablewrap"><table class="ptable"><thead><tr><th>Looked up meanwhile</th><th>Used by</th><th>Times</th></tr></thead><tbody>
+      ${dns.names.map(x => `<tr><td>${esc(x.name)}</td><td class="muted">${esc(x.who || "–")}</td><td class="num">${x.n}</td></tr>`).join("")}</tbody></table></div>` : ""}</div>` : ""}
+
+    <p class="note">Measured on the VM every 5 minutes, kept for 7 days${d.since ? `, since ${esc(when(d.since))}` : ""}. Last reading ${esc(when(d.sampled))}. The streaming numbers are under Watching.</p>`;
 }
 
 async function watchStats() {

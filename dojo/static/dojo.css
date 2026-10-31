@@ -536,3 +536,23 @@ details.pb > summary .muted { font-size: .88rem; }
   .wover .wpeople > div + div h2 { margin-top: 22px; }
   .wwhen { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 24px; align-items: start; }
 }
+
+/* Stats → System: the VM's own numbers, set apart from the streaming tabs */
+.stabs { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.seg-sys { margin-left: 4px; position: relative; }
+.seg-sys::before { content: ""; position: absolute; left: -9px; top: 8px; bottom: 8px; width: 1px; background: var(--border-strong); }
+.systable td { vertical-align: middle; }
+.systable td:first-child { white-space: nowrap; }
+.systable td:first-child img, .systable td:first-child .appicon { width: 20px; height: 20px; margin-right: 8px; vertical-align: -5px; }
+.systable .memc { min-width: 150px; }
+.systable .memc .hb-t { display: block; margin-top: 5px; max-width: 160px; }
+.mem-t b { color: var(--text); font-weight: 600; }
+.spark { display: block; }
+.spark path { fill: none; stroke: var(--s1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.spark .ceil { stroke: var(--axis); stroke-width: 1; stroke-dasharray: 3 3; }
+.tr-m { display: none; margin-top: 4px; white-space: normal; max-width: 190px; }
+@media (max-width: 700px) {
+  .seg-sys::before { display: none; }
+  .systable .sp-c, .systable .tr-c { display: none; }
+  .tr-m { display: block; }
+}

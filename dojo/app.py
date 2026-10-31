@@ -28,6 +28,7 @@ from urllib.parse import urlsplit
 import requests
 import history
 import push
+import sysstats
 import upstream
 from flask import Flask, Response, abort, g, has_request_context, jsonify, request, send_file, session
 
@@ -187,7 +188,7 @@ def api_session():
 
 
 def host_status():
-    """The VM's update status, written by the host every 15 minutes (bootstrap.sh host-status)."""
+    """The VM's update status, written by the host every 5 minutes (bootstrap.sh host-status)."""
     try:
         return json.loads((STATE / "host.json").read_text())
     except (OSError, ValueError):
@@ -752,6 +753,13 @@ def shared_health(env=None):
     return cached("health", HEALTH_TTL, lambda: health_checks(env or env_read()))
 
 
+@app.get("/api/system")
+def api_system():
+    """Stats → System: the VM's own numbers (not the streaming ones)."""
+    window = request.args.get("window", "24h")
+    return jsonify(sysstats.page(STATE, host_status(), "7d" if window == "7d" else "24h"))
+
+
 @app.get("/api/health")
 def api_health():
     return jsonify(checks=shared_health())
@@ -768,11 +776,11 @@ def memory_check(hs):
     if not m:
         return check("Host", "Memory", "ok", "")
     used = m["total_mb"] - m["available_mb"]
-    top = ", ".join(f"{a['name'].capitalize()} {gb(a['mb'])}" for a in (m.get("apps") or [])[:3])
+    top = ", ".join(f"{sysstats.nice(a['name'])} {gb(a['mb'])}" for a in sorted(m.get("apps") or [], key=lambda a: -a["mb"])[:3])
     oom = [o for o in m.get("oom") or [] if o.get("app") in SERVICES and time.time() - o["at"] < 7 * 86400]
     if oom:
         last = oom[-1]
-        name = last["app"].capitalize()
+        name = sysstats.nice(last["app"])
         lim = next((a["limit_mb"] for a in m.get("apps") or [] if a["name"] == last["app"]), None)
         what = f"hit its memory ceiling ({gb(lim)})" if last.get("ceiling") and lim else "ran out of memory"
         more = f" ({len(oom)} times this week)" if len(oom) > 1 else ""
@@ -786,7 +794,7 @@ def memory_check(hs):
 
 def health_checks(env):
     out = []
-    restart = lambda s: {"job": f"restart {s}", "label": f"Restart {s.capitalize()}"}
+    restart = lambda s: {"job": f"restart {s}", "label": f"Restart {sysstats.nice(s)}"}
     rewire = {"job": "wire", "label": "Re-apply settings"}
 
     status_paths = {"sonarr": "/api/v3/system/status", "radarr": "/api/v3/system/status",
@@ -918,9 +926,13 @@ def health_checks(env):
                              else f"Emby transcodes on the {name} GPU",
                              {"open": 8096, "path": "/web/index.html#!/transcoding", "label": "Open Emby"} if off else None))
     out.append(memory_check(hs))
+    out += sysstats.checks(STATE, hs, check)
     du = shutil.disk_usage(DATA)
     pct = round(du.used * 100 / du.total)
-    out.append(check("Host", "Disk", "ok" if pct < 90 else "warn", f"{pct}% used, {du.free // 2**30} GB free"))
+    note, full_in = sysstats.disk_note(STATE)
+    out.append(check("Host", "Disk", "ok" if pct < 90 and (full_in is None or full_in > 14) else "warn",
+                     f"{pct}% used, {du.free // 2**30} GB free" + (f" · {note}" if note else ""),
+                     {"go": "stats/system", "label": "Details"} if full_in is not None and full_in <= 14 else None))
     backups = list_backups(env)
     if not backups and backup_path(env) is None:
         # kept in a folder Dojo can't see (BACKUP_DIR elsewhere): the host notes each one it makes
@@ -2545,6 +2557,20 @@ def watch_for_push():
                     if new or fixed:
                         PUSH.mark("broken", sorted((announced - fixed) | new))
                     pending = set(fails)
+            if n % 5 == 0 and _notifier[0].wanted("broken"):
+                # the VM itself: short of memory, an app growing towards its ceiling, swap held all day,
+                # DNS piling up, the disk filling — each said once, and again only after it cleared
+                sysw = {c["label"]: c["detail"] for c in shared_health(env)
+                        if c["status"] == "warn" and c["label"] in ("Waiting for memory", "Memory trend", "Swap", "DNS", "Disk")}
+                told = set(PUSH.seen("system", []))
+                fresh = [k for k in sysw if k not in told]
+                if fresh:
+                    k = fresh[0]
+                    notify("broken", {"Waiting for memory": "The VM is short of memory", "Memory trend": "An app keeps growing",
+                                      "Swap": "The VM is short of memory", "DNS": "DNS lookups piled up", "Disk": "The disk is filling up"}[k],
+                           sysw[k], "/#stats/system", tag="system")
+                if set(sysw) != told:
+                    PUSH.mark("system", sorted(sysw))
             if n % 15 == 0:
                 backups = list_backups(env)
                 if backups and env.get("BACKUP_SCHEDULE", "daily") != "off":
@@ -2570,7 +2596,7 @@ def watch_for_push():
                 fresh = [o for o in ooms if seen_at is not None and o["at"] > seen_at]
                 if fresh and _notifier[0].wanted("broken"):
                     o = fresh[-1]
-                    notify("broken", f"{o['app'].capitalize()} ran out of memory",
+                    notify("broken", f"{sysstats.nice(o['app'])} ran out of memory",
                            "It was cut off at its memory ceiling and everything else kept running. Home → Memory has the details.", "/#home", tag="oom")
                 if ooms and (seen_at is None or ooms[-1]["at"] > seen_at):
                     PUSH.mark("oom", ooms[-1]["at"])     # first look only remembers; later ones announce
