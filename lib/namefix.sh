@@ -4,9 +4,11 @@
 # Some releases carry their file names in an old encoding (an umlaut stored as a single Latin-1
 # byte, say), and AIOStreams hands them on as they are. Sonarr and Radarr can't reliably open a path
 # that isn't valid UTF-8, so the import sits at "Downloaded - Importing" for ever, though the data
-# is fine. From the host-status timer (every 5 minutes): a download that has sat in import for
-# 15 minutes and whose folder holds such names gets those files linked into the library under a
-# cleaned name, pointing where the import would have pointed; the app rescans and takes them. Once
+# is fine — and one such file holds up the whole download, a season pack's good episodes too. From
+# the host-status timer (every 5 minutes): a download that has sat in import for 15 minutes and
+# whose folder holds such names gets imported by hand: each video whose episode (or movie) has no
+# file yet is linked into the library, under a cleaned name where it needs one, pointing where the
+# import would have pointed; the app rescans and takes them. Once
 # every episode (or the movie) has its file, the stuck entry leaves the queue — kept in AIOStreams,
 # since the library plays from it. Sonarr and Radarr rename by episode/movie title as usual, so the
 # cleaned name only has to carry SxxEyy.
@@ -16,7 +18,7 @@
 # .state/namefix.tsv      at<TAB>app<TAB>fixed|partly<TAB>title<TAB>files   (for Dojo, 30 days)
 
 NAMEFIX_WAIT=900         # stuck this long (seconds) before anything is touched
-NAMEFIX_GIVEUP=3600      # linked this long without every file showing up: leave it to a person
+NAMEFIX_GIVEUP=7200      # linked this long without every file showing up: leave it to a person
 
 # name_broken NAME — not valid UTF-8, or carrying U+FFFD/FFFE/FFFF or a control character
 name_broken() {
@@ -35,7 +37,8 @@ clean_name() {
 is_video() { [[ "${1,,}" =~ \.(mkv|mp4|m4v|avi|ts|m2ts|wmv|mov)$ && ! "${1,,}" =~ (^|[._ -])sample([._ -]|$) ]]; }
 
 # namefix_place SRC DEST — links SRC (a host path in the stream folder) into the library folder
-# DEST (as the apps see it, /library/…) under a cleaned name, pointing where SRC points
+# DEST (as the apps see it, /library/…) under a cleaned name, pointing where SRC points; fails when
+# there's nothing new to link
 namefix_place() {
   local src=$1 dest=$2 target clean h
   [[ "$dest" == /library/tv/?* || "$dest" == /library/movies/?* ]] || return 1
@@ -44,7 +47,7 @@ namefix_place() {
   [[ -n "$clean" && "$clean" != */* ]] || return 1
   h="$NINJARR_DATA$dest"
   [[ -d "$h" ]] || { mkdir -p "$h" && chown "$PUID:$PGID" "$h" "${h%/*}"; } || return 1
-  [[ -e "$h/$clean" || -L "$h/$clean" ]] && return 0
+  [[ -e "$h/$clean" || -L "$h/$clean" ]] && return 1     # linked on an earlier pass: not counted again
   ln -s "$target" "$h/$clean" && chown -h "$PUID:$PGID" "$h/$clean"
 }
 
@@ -55,22 +58,24 @@ namefix_log() { # namefix_log APP fixed|partly TITLE FILES
   mv -f "$f.tmp" "$f"
 }
 
-# namefix_link APP GROUP — links the broken-named files of one stuck download; prints how many
+# namefix_link APP GROUP — links the files of one stuck download that holds broken names; prints
+# how many (-1: no broken names, not ours to fix)
 namefix_link() {
   local app=$1 g=$2 path media dir f name n=0 best="" size=0 s e ep series files dest
   path=$(jq -r .path <<<"$g"); media=$(jq -r .media <<<"$g")
   dir="$NINJARR_DATA/stream/${path#/mnt/}"
   [[ "$path" == /mnt/aiostreams/* && -d "$dir" ]] || { echo -1; return 0; }
-  local LC_ALL=C broken=()
+  local LC_ALL=C videos=() broken=0
   for f in "$dir"/*; do
     name=${f##*/}
-    is_video "$name" && name_broken "$name" && broken+=("$f")
+    is_video "$name" || continue
+    videos+=("$f"); name_broken "$name" && broken=1
   done
-  (( ${#broken[@]} )) || { echo -1; return 0; }        # nothing wrong with the names: not ours to fix
+  (( broken )) || { echo -1; return 0; }               # nothing wrong with the names: not ours to fix
   if [[ "$app" == radarr ]]; then
     local movie; movie=$(api GET "$BASE/movie/$media") || { echo 0; return 0; }
     if [[ "$(jq -r .hasFile <<<"$movie")" != true ]]; then
-      for f in "${broken[@]}"; do                       # the main file: the biggest one
+      for f in "${videos[@]}"; do                       # the main file: the biggest one
         s=$(stat -Lc %s "$f" 2>/dev/null || echo 0); (( s > size )) && { best=$f; size=$s; }
       done
       [[ -n "$best" ]] && namefix_place "$best" "$(jq -r .path <<<"$movie")" && n=1
@@ -78,7 +83,7 @@ namefix_link() {
   else
     series=$(api GET "$BASE/series/$media") || { echo 0; return 0; }
     files=$(api GET "$BASE/episodefile?seriesId=$media") || files='[]'
-    for f in "${broken[@]}"; do
+    for f in "${videos[@]}"; do
       name=${f##*/}
       [[ "$name" =~ [Ss]([0-9]{1,2})[._\ -]?[Ee]([0-9]{1,3}) ]] || continue
       s=$((10#${BASH_REMATCH[1]})); e=$((10#${BASH_REMATCH[2]}))
@@ -131,6 +136,10 @@ namefix_app() {
     line=$(awk -v a="$app" -v i="$id" '$1 == a && $2 == i {print; exit}' "$pend" 2>/dev/null || true)
     if [[ -n "$line" ]]; then
       read -r _ _ at count state <<<"$line"
+      # whatever is still missing (an earlier ninjarr linked only the broken names)
+      if [[ "$state" == wait ]] && ! namefix_done "$app" "$g"; then
+        n=$(namefix_link "$app" "$g" || echo 0); (( ${n:-0} > 0 )) && count=$((count + n))
+      fi
       if [[ "$state" == wait ]] && namefix_done "$app" "$g"; then
         # the files are in: the stuck entry goes, the download stays (the library plays from it)
         api DELETE "$BASE/queue/bulk?removeFromClient=false&blocklist=false" "$(jq -c '{ids: .q}' <<<"$g")" >/dev/null \
