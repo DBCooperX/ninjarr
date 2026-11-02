@@ -49,7 +49,11 @@ for line in "${passed[@]}"; do
   old=$(sed -n "s/^${app^^}_TAG='\(.*\)'.*/\1/p" versions.env)
   sed -i "s/^${app^^}_TAG='.*'/${app^^}_TAG='$tag'/" versions.env
   sed -i "/^${app^^}_TAG=/d" ninjarr.env
-  note+="- ${app}: ${old} → ${tag}"$'\n'
+  if [[ "$old" =~ ^(.+)-ls[0-9]+$ && "$tag" == "${BASH_REMATCH[1]}"-ls* ]]; then
+    note+="- ${app}: ${old} → ${tag} (same version, rebuilt on an updated base system)"$'\n'
+  else
+    note+="- ${app}: ${old} → ${tag}"$'\n'
+  fi
 done
 rm -rf .state/tries
 ./bootstrap.sh
