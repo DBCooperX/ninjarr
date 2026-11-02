@@ -13,11 +13,11 @@
 # since the library plays from it. Sonarr and Radarr rename by episode/movie title as usual, so the
 # cleaned name only has to carry SxxEyy.
 #
-# .state/namefix.seen     app downloadId first-seen      (downloads stuck in import right now)
+# .state/namefix.seen     app downloadId first-seen broken(1|0)   (downloads stuck in import right now)
 # .state/namefix.pending  app downloadId linked-at count state   (state: wait | gaveup)
 # .state/namefix.tsv      at<TAB>app<TAB>fixed|partly<TAB>title<TAB>files   (for Dojo, 30 days)
 
-NAMEFIX_WAIT=900         # stuck this long (seconds) before anything is touched
+NAMEFIX_WAIT=900         # stuck this long (seconds) before anything is touched (Dojo's "Fix now": 0)
 NAMEFIX_GIVEUP=7200      # linked this long without every file showing up: leave it to a person
 
 # name_broken NAME — not valid UTF-8, or carrying U+FFFD/FFFE/FFFF or a control character
@@ -32,6 +32,17 @@ name_broken() {
 # clean_name NAME — the same name with whatever broke it left out
 clean_name() {
   printf '%s' "$1" | LC_ALL=C sed 's/\xef\xbf[\xbd\xbe\xbf]//g' | iconv -f UTF-8 -t UTF-8 -c 2>/dev/null | LC_ALL=C tr -d '[:cntrl:]'
+}
+
+# what happened, for Dojo's "Fix now" log (NAMEFIX_SAY=1 first pass, 2 later ones); to stderr,
+# since namefix_link's output is its count
+namefix_say() { [[ -n "${NAMEFIX_SAY:-}" ]] && "${2:-info}" "$1" >&2; return 0; }
+
+# namefix_has_broken DIR — a video in it has a broken name
+namefix_has_broken() {
+  local LC_ALL=C f
+  for f in "$1"/*; do is_video "${f##*/}" && name_broken "${f##*/}" && return 0; done
+  return 1
 }
 
 is_video() { [[ "${1,,}" =~ \.(mkv|mp4|m4v|avi|ts|m2ts|wmv|mov)$ && ! "${1,,}" =~ (^|[._ -])sample([._ -]|$) ]]; }
@@ -115,7 +126,7 @@ namefix_done() {
 }
 
 namefix_app() {
-  local app=$1 queue stuck now g id title first line n at count state
+  local app=$1 queue stuck now g id title first line n at count state broken dir
   local seenf="$ROOT/.state/namefix.seen" pend="$ROOT/.state/namefix.pending" seen="" keep=""
   arr_use "$app"
   queue=$(api GET "$BASE/queue?pageSize=1000") || return 0
@@ -132,27 +143,40 @@ namefix_app() {
     id=$(jq -r .id <<<"$g"); title=$(jq -r .title <<<"$g")
     [[ "$id" =~ ^[A-Za-z0-9_.-]{1,128}$ ]] || continue
     first=$(awk -v a="$app" -v i="$id" '$1 == a && $2 == i {print $3; exit}' "$seenf" 2>/dev/null || true)
-    seen+="$app $id ${first:-$now}"$'\n'
+    dir="$NINJARR_DATA/stream/$(jq -r .path <<<"$g" | sed 's|^/mnt/||')"
+    broken=0; namefix_has_broken "$dir" && broken=1
+    seen+="$app $id ${first:-$now} $broken"$'\n'
     line=$(awk -v a="$app" -v i="$id" '$1 == a && $2 == i {print; exit}' "$pend" 2>/dev/null || true)
     if [[ -n "$line" ]]; then
       read -r _ _ at count state <<<"$line"
       # whatever is still missing (an earlier ninjarr linked only the broken names)
       if [[ "$state" == wait ]] && ! namefix_done "$app" "$g"; then
-        n=$(namefix_link "$app" "$g" || echo 0); (( ${n:-0} > 0 )) && count=$((count + n))
+        n=$(namefix_link "$app" "$g" || echo 0)
+        (( ${n:-0} > 0 )) && { count=$((count + n)); namefix_say "${title}: linked $n more file(s), $APP_NAME rescans" ok; }
       fi
       if [[ "$state" == wait ]] && namefix_done "$app" "$g"; then
         # the files are in: the stuck entry goes, the download stays (the library plays from it)
         api DELETE "$BASE/queue/bulk?removeFromClient=false&blocklist=false" "$(jq -c '{ids: .q}' <<<"$g")" >/dev/null \
-          && { namefix_log "$app" fixed "$title" "$count"; continue; }
+          && { namefix_log "$app" fixed "$title" "$count"; namefix_say "${title}: all in — taken out of $APP_NAME's queue (the download stays)" ok; continue; }
       elif [[ "$state" == wait ]] && (( now - at > NAMEFIX_GIVEUP )); then
         namefix_log "$app" partly "$title" "$count"; state=gaveup
+        namefix_say "${title}: some files never showed up in $APP_NAME — use Manual Import there" warn
       fi
+      [[ "$state" == wait && "${NAMEFIX_SAY:-}" == 1 ]] && namefix_say "${title}: imported by hand, waiting for $APP_NAME to take the files"
       keep+="$app $id $at $count $state"$'\n'
+      continue
+    fi
+    if (( ! broken )); then
+      [[ "${NAMEFIX_SAY:-}" == 1 ]] && namefix_say "${title}: stuck in import, but its file names are fine — $APP_NAME's queue says why"
       continue
     fi
     (( now - ${first:-$now} >= NAMEFIX_WAIT )) || continue
     n=$(namefix_link "$app" "$g" || echo 0)
-    (( ${n:-0} >= 0 )) && keep+="$app $id $now $n wait"$'\n'
+    if (( ${n:-0} >= 0 )); then
+      keep+="$app $id $now $n wait"$'\n'
+      if (( n )); then namefix_say "${title}: broken file names — linked $n file(s) by hand, $APP_NAME rescans" ok
+      else namefix_say "${title}: broken file names, but every file is in already — clearing it from the queue"; fi
+    fi
   done <<<"$stuck"
   # only downloads still stuck are remembered
   { grep -vs "^$app " "$seenf" || true; printf '%s' "$seen"; } >"$seenf.tmp"; mv -f "$seenf.tmp" "$seenf"
@@ -166,4 +190,20 @@ namefix() {
   [[ -n "${SONARR_API_KEY:-}" ]] && { namefix_app sonarr || true; }
   [[ -n "${RADARR_API_KEY:-}" ]] && { namefix_app radarr || true; }
   return 0
+}
+
+# Dojo's "Fix now": no 15-minute wait, and a few more passes so the stuck entry is gone when it ends
+fix_imports() {
+  local _
+  NAMEFIX_WAIT=0 NAMEFIX_SAY=1 namefix
+  for _ in 1 2 3 4 5 6; do
+    grep -qs ' wait$' "$ROOT/.state/namefix.pending" || break
+    sleep 20
+    NAMEFIX_WAIT=0 NAMEFIX_SAY=2 namefix
+  done
+  if grep -qs ' wait$' "$ROOT/.state/namefix.pending"; then
+    info "still waiting for Sonarr/Radarr to take some files — the 5-minute check finishes it"
+  elif [[ ! -s "$ROOT/.state/namefix.seen" ]]; then
+    ok "nothing stuck in import"
+  fi
 }

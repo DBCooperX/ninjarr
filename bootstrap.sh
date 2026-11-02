@@ -19,7 +19,7 @@
 #   ./bootstrap.sh down         stop the stack (data stays)
 set -Eeuo pipefail
 
-NINJARR_VERSION="1.0.6"
+NINJARR_VERSION="1.0.7"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${NINJARR_ENV:-$ROOT/ninjarr.env}"
 LOG="$ROOT/.ninjarr.log"
@@ -246,6 +246,8 @@ main() {
     host-status) # the VM's status for Dojo: updates, memory, CPU, disk (timer, every 5 minutes);
       # then imports stuck on broken file names (lib/namefix.sh)
       LOG=/dev/null; env_load || true; gpu_followup; host_status; namefix || true; return 0 ;;
+    fix-imports) # imports stuck on broken file names, right away (Dojo's "Fix now")
+      LOG="$ROOT/.ninjarr-jobs.log"; env_load || die "no ninjarr.env"; fix_imports; return 0 ;;
     reboot) # restart the VM (Dojo's "Restart now")
       env_load || true; reboot_host; return 0 ;;
     settings) # take over settings Dojo changed that need no rebuild (env_load does it)

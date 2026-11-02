@@ -294,7 +294,7 @@ def api_logout():
 
 
 # ─────────────────────────────────────────────── jobs (run on the host)
-ALLOWED_JOBS = {"apply", "wire", "update", "backup", "doctor", "reboot", "settings"}
+ALLOWED_JOBS = {"apply", "wire", "update", "backup", "doctor", "reboot", "settings", "fix-imports"}
 
 
 def queue_job(line):
@@ -771,6 +771,51 @@ def namefix_entries(days=7):
             out.append({"at": int(p[0]), "app": p[1], "state": p[2], "title": release_title(p[3]),
                         "files": int(p[4]) if p[4].isdigit() else 0})
     return sorted(out, key=lambda e: -e["at"])
+
+
+def _state_rows(name):
+    try:
+        return [ln.split() for ln in (STATE / name).read_text(errors="replace").splitlines() if ln.strip()]
+    except OSError:
+        return []
+
+
+STUCK_STATES = ("importPending", "importing", "importBlocked")
+
+
+def stuck_imports(env):
+    """Downloads Sonarr/Radarr finished but haven't imported, with where the host's fix is with each
+    (lib/namefix.sh writes namefix.seen/.pending every 5 minutes), and the ones it fixed this past hour."""
+    seen = {(r[0], r[1]): r for r in _state_rows("namefix.seen") if len(r) >= 3}
+    pend = {(r[0], r[1]): r for r in _state_rows("namefix.pending") if len(r) >= 5}
+    now, out = time.time(), []
+    for app_ in ("sonarr", "radarr"):
+        q = get_json(app_, "/api/v3/queue?pageSize=1000", env, {}) or {}
+        groups = {}
+        for r in q.get("records") or []:
+            if r.get("status") == "completed" and r.get("trackedDownloadState") in STUCK_STATES and r.get("downloadId"):
+                groups.setdefault(r["downloadId"], []).append(r)
+        for did, rs in groups.items():
+            msgs = [m for r in rs for sm in r.get("statusMessages") or [] for m in sm.get("messages") or []]
+            row = {"app": app_, "title": release_title(rs[0].get("title") or "?"), "files": len(rs),
+                   "why": msgs[0] if msgs else "", "age_min": None, "state": "new"}
+            s_, p_ = seen.get((app_, did)), pend.get((app_, did))
+            if s_ and s_[2].isdigit():
+                row["age_min"] = int((now - int(s_[2])) // 60)
+                broken = len(s_) > 3 and s_[3] == "1"
+                row["state"] = "broken" if broken else "names-ok"
+                if broken:
+                    row["fix_in_min"] = max(0, 15 - row["age_min"])
+            if p_:
+                row["state"] = "gaveup" if p_[4] == "gaveup" else "linked"
+                row["linked"] = int(p_[3]) if p_[3].isdigit() else 0
+            out.append(row)
+    for e in namefix_entries(1):
+        if e["at"] > now - 3600 and e["state"] == "fixed":
+            out.append({"app": e["app"], "title": e["title"], "files": e["files"], "state": "fixed",
+                        "ago_min": int((now - e["at"]) // 60)})
+    order = {"gaveup": 0, "names-ok": 1, "broken": 2, "linked": 3, "new": 4, "fixed": 5}
+    return sorted(out, key=lambda r: (order[r["state"]], -(r.get("age_min") or 0)))
 
 
 def namefix_checks():
@@ -1790,6 +1835,7 @@ def api_home():
                    | {"art": p.get("group_id") or p.get("item_id"), "pct": pct})
     t = history.totals(time.time() - 7 * 86400) or {}
     return jsonify(now=now, recent=cached("recent-added", 120, lambda: recently_added(env)),
+                   stuck=cached("stuck-imports", 20, lambda: stuck_imports(env)),
                    week={"hours": t.get("hours"), "plays": t.get("plays"), "viewers": t.get("viewers"), "titles": t.get("titles")})
 
 

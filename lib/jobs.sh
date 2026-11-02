@@ -19,7 +19,7 @@ job_command() { # job_command LINE — prints the bootstrap.sh arguments for an 
       # an app ninjarr runs, and a version name (letters, digits, dots, dashes)
       [[ " ${TRY_APPS[*]} " == *" ${arg:-x} "* && "${arg2:-}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] && echo "try-version $arg $arg2" ;;
     revert-version) [[ " ${TRY_APPS[*]} " == *" ${arg:-x} "* && -z "${arg2:-}" ]] && echo "revert-version $arg" ;;
-    wire|update|backup|doctor|reboot) [[ -z "${arg:-}" && -z "${arg2:-}" ]] && echo "$cmd" ;;
+    wire|update|backup|doctor|reboot|fix-imports) [[ -z "${arg:-}" && -z "${arg2:-}" ]] && echo "$cmd" ;;
     restart) [[ " $JOB_SERVICES " == *" ${arg:-x} "* && -z "${arg2:-}" ]] && echo "restart $arg" ;;
     delete-backup)
       [[ -z "${arg2:-}" && "${arg:-}" =~ ^ninjarr-[0-9]{8}-[0-9]{6}\.tar\.gz$ ]] && [[ -f "$(backup_dir)/$arg" ]] && echo "delete-backup $arg" ;;

@@ -185,7 +185,7 @@ async function watchJobs() {
   pill.hidden = !live;
   if (live) { S.lastJob = live.id; $("#jobpilltext").textContent = jobLabel(live.cmd) + "…"; }
 }
-const jobLabel = c => ({ apply: "Applying settings", wire: "Re-applying settings", update: "Updating", backup: "Backing up", doctor: "Running the full check" })[c.split(" ")[0]]
+const jobLabel = c => ({ apply: "Applying settings", wire: "Re-applying settings", update: "Updating", backup: "Backing up", doctor: "Running the full check", "fix-imports": "Fixing stuck imports" })[c.split(" ")[0]]
   || (c.startsWith("restart") ? `Restarting ${c.split(" ")[1]}` : c.startsWith("restore") ? "Restoring"
     : c.startsWith("try-version") ? `Trying ${APPNAME[c.split(" ")[1]] || c.split(" ")[1]} ${c.split(" ")[2]}`
     : c.startsWith("revert-version") ? `Going back to the previous ${APPNAME[c.split(" ")[1]] || c.split(" ")[1]}` : c);
@@ -387,6 +387,7 @@ async function pageHome() {
           ${fixButton(c.fix)}</div>`;
     const attention = [...fails, ...warns];
     const now = (h && h.now) || [], recent = (h && h.recent) || [], wk = (h && h.week) || {};
+    const stuck = (h && h.stuck) || [];
     const art = (now.find(x => x.art) || recent.find(x => x.art) || {}).art;
     const node = l => `<div class="node">${l.app ? appIcon(l.app.name, l.app.icon) : ""}<span class="st" aria-hidden="true"></span></div>`;
     el.innerHTML = `
@@ -402,6 +403,7 @@ async function pageHome() {
       </section>
       ${now.length ? `<div class="sec-h"><h2>Now playing</h2><a href="#stats" data-goto="stats">Details</a></div>${playingCards(now)}` : ""}
       ${recent.length ? `<div class="sec-h"><h2>Recently added</h2><a href="${esc(lanUrl(8096))}" target="_blank" rel="noopener">Open Emby</a></div>${shelf(recent)}` : ""}
+      ${stuck.length ? `<div class="sec-h"><h2>Imports</h2></div><div class="checks">${stuck.map(importRow).join("")}</div>` : ""}
       ${attention.length ? `<div class="home-grid">
         <div><h2>Needs a look</h2><div class="checks">${attention.map(row).join("")}</div></div>
         <div>${appsPanel(a)}</div>
@@ -419,6 +421,38 @@ async function pageHome() {
   };
   await load();
   poll(load, 30000);
+}
+
+// A download Sonarr/Radarr finished but didn't import, and where ninjarr's fix for broken file
+// names is with it (lib/namefix.sh); shown on Home only while there's one, or one was just fixed
+function importRow(r) {
+  const App = r.app === "radarr" ? "Radarr" : "Sonarr", port = r.app === "radarr" ? 7878 : 8989;
+  const open = { open: port, path: "/activity/queue", label: `Open ${App}` };
+  const what = `${App} · ${r.files} ${r.files === 1 ? "file" : r.app === "radarr" ? "files" : "episodes"}`;
+  const mins = m => m < 1 ? "under a minute" : m === 1 ? "1 min" : m < 90 ? `${m} min` : `${Math.round(m / 60)} h`;
+  const them = r.files === 1 ? "it" : "them";
+  let st = "warn", detail, fix = null;
+  switch (r.state) {
+    case "broken":
+      detail = `${what} · some file names are broken, so ${App} can't import ${them}. ninjarr imports ${them} by hand `
+        + (r.fix_in_min > 0 ? `in about ${mins(r.fix_in_min)}` : "at its next check") + ".";
+      fix = { job: "fix-imports", label: "Fix now" }; break;
+    case "linked":
+      detail = `${what} · imported by hand (${r.linked} linked), waiting for ${App} to take ${them}. It leaves the queue by itself.`; break;
+    case "gaveup":
+      st = "fail"; detail = `${what} · some files never showed up in ${App}. Use Manual Import there, or remove it from the queue with "Blocklist release" ticked.`;
+      fix = open; break;
+    case "names-ok":
+      if ((r.age_min || 0) < 30) { st = "ok"; detail = `${what} · importing for ${mins(r.age_min || 0)}.`; break; }
+      detail = `${what} · stuck for ${mins(r.age_min)}. Its file names are fine, so it's something else${r.why ? `: ${r.why}` : `, ${App}'s queue says what`}.`;
+      fix = open; break;
+    case "fixed":
+      st = "ok"; detail = `${App} · fixed ${mins(r.ago_min)} ago: ${r.files ? `${r.files} ${r.files === 1 ? "file" : "files"} imported by hand` : "it was all in already"}.`; break;
+    default:
+      st = "ok"; detail = `${what} · importing${r.why ? `: ${r.why}` : "."}`;
+  }
+  return `<div class="item ${st}"><span class="mark" aria-label="${st}"></span>
+    <div><h3>${esc(r.title)}</h3><div class="detail">${esc(detail)}</div></div>${fixButton(fix)}</div>`;
 }
 
 // one sentence on what to do about the transcodes that are running
