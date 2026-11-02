@@ -19,7 +19,7 @@
 #   ./bootstrap.sh down         stop the stack (data stays)
 set -Eeuo pipefail
 
-NINJARR_VERSION="1.0.4"
+NINJARR_VERSION="1.0.5"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${NINJARR_ENV:-$ROOT/ninjarr.env}"
 LOG="$ROOT/.ninjarr.log"
@@ -49,6 +49,8 @@ STEP_TOTAL=6
 . "$ROOT/lib/migrate.sh"
 # shellcheck source=lib/osupdates.sh
 . "$ROOT/lib/osupdates.sh"
+# shellcheck source=lib/namefix.sh
+. "$ROOT/lib/namefix.sh"
 # shellcheck source=lib/versions.sh
 . "$ROOT/lib/versions.sh"
 
@@ -241,8 +243,9 @@ main() {
       [[ "${2:-}" =~ ^ninjarr-[0-9]{8}-[0-9]{6}\.tar\.gz$ ]] || die "not a ninjarr backup name: ${2:-}"
       [[ -f "$(backup_dir)/$2" ]] || die "no such backup: $2"
       rm -f "$(backup_dir)/$2"; ok "deleted $2"; return 0 ;;
-    host-status) # the VM's status for Dojo: updates, memory, CPU, disk (timer, every 5 minutes)
-      LOG=/dev/null; env_load || true; gpu_followup; host_status; return 0 ;;
+    host-status) # the VM's status for Dojo: updates, memory, CPU, disk (timer, every 5 minutes);
+      # then imports stuck on broken file names (lib/namefix.sh)
+      LOG=/dev/null; env_load || true; gpu_followup; host_status; namefix || true; return 0 ;;
     reboot) # restart the VM (Dojo's "Restart now")
       env_load || true; reboot_host; return 0 ;;
     settings) # take over settings Dojo changed that need no rebuild (env_load does it)

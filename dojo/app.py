@@ -746,6 +746,52 @@ def check(group, label, status, detail="", fix=None):
     return {"group": group, "label": label, "status": status, "detail": detail, "fix": fix}
 
 
+def release_title(t):
+    """"The.Blacklist.S06.Complete.2019.GERMAN…" → "The Blacklist S06"; a movie → "Some Film (2001)"."""
+    m = re.match(r"(.+?)[ ._-]+(S\d{1,2}(?:E\d{1,3})?)(?=[ ._-]|$)", t, re.I)
+    if m:
+        return f"{re.sub(r'[._]+', ' ', m.group(1)).strip()} {m.group(2).upper()}"
+    m = re.match(r"(.+?)[ ._-]+\(?((?:19|20)\d{2})\)?(?=[ ._-]|$)", t)
+    if m:
+        return f"{re.sub(r'[._]+', ' ', m.group(1)).strip()} ({m.group(2)})"
+    return re.sub(r"[._]+", " ", t).strip()
+
+
+def namefix_entries(days=7):
+    """Imports the host un-stuck because of broken file names (bootstrap.sh host-status, lib/namefix.sh),
+    newest first: {at, app, state (fixed | partly), title, files}."""
+    out, since = [], time.time() - days * 86400
+    try:
+        lines = (STATE / "namefix.tsv").read_text(errors="replace").splitlines()
+    except OSError:
+        return out
+    for ln in lines:
+        p = ln.split("\t")
+        if len(p) == 5 and p[0].isdigit() and int(p[0]) >= since and p[2] in ("fixed", "partly"):
+            out.append({"at": int(p[0]), "app": p[1], "state": p[2], "title": release_title(p[3]),
+                        "files": int(p[4]) if p[4].isdigit() else 0})
+    return sorted(out, key=lambda e: -e["at"])
+
+
+def namefix_checks():
+    """Shown only when something happened: a stuck import left for a person (2 days), or the ones fixed this week."""
+    es = namefix_entries()
+    left = [e for e in es if e["state"] == "partly" and e["at"] > time.time() - 2 * 86400]
+    if left:
+        e = left[0]
+        port, page = (8989, "/activity/queue") if e["app"] == "sonarr" else (7878, "/activity/queue")
+        return [check("Streaming chain", "Broken file names", "warn",
+                      f"{e['title']}: some files have broken names and couldn't be imported for you. "
+                      f"In {e['app'].capitalize()}, use Manual Import on that download, or remove it from the queue with \"Blocklist release\" ticked.",
+                      {"open": port, "path": page, "label": f"Open {e['app'].capitalize()}"})]
+    fixed = [e for e in es if e["state"] == "fixed"]
+    if fixed:
+        n = len(fixed)
+        return [check("Streaming chain", "Broken file names", "ok",
+                      f"{'one stuck import' if n == 1 else f'{n} stuck imports'} fixed this week, latest: {fixed[0]['title']}")]
+    return []
+
+
 HEALTH_TTL = 20   # every open page and the push watcher share one result; a finished job clears it
 
 
@@ -844,6 +890,8 @@ def health_checks(env):
         out.append(check("Streaming chain", f"{label} library folder", "ok" if good else "fail",
                          ", ".join(r.get("path", "") for r in roots) if good else "missing or not accessible", None if good else rewire))
         app_warnings[label] = [h.get("message", "") for h in get_json(name, "/api/v3/health", env, []) or []]
+
+    out += namefix_checks()
 
     if up["prowlarr"]:
         idx = get_json("prowlarr", "/api/v1/indexer", env, []) or []
@@ -2571,6 +2619,25 @@ def watch_for_push():
                            sysw[k], "/#stats/system", tag="system")
                 if set(sysw) != told:
                     PUSH.mark("system", sorted(sysw))
+            if n % 5 == 0 and _notifier[0].wanted("broken"):
+                # an import the host un-stuck (broken file names), or one it had to leave to you
+                es = namefix_entries(1)
+                last = PUSH.seen("namefix", None)
+                fresh = [e for e in es if last is not None and e["at"] > last]
+                if fresh:
+                    e = fresh[0]
+                    if e["state"] == "fixed":
+                        k = e["files"]
+                        notify("broken", "Fixed a stuck import",
+                               f"{e['title']}: " + (f"{'a file' if k == 1 else f'{k} files'} had broken names; " if k else "")
+                               + "it's in the library now.", "/#home", tag="namefix")
+                    else:
+                        notify("broken", "An import needs you", f"{e['title']}: some files have broken names. Home has what to do.",
+                               "/#home", tag="namefix")
+                if es and (last is None or es[0]["at"] > last):
+                    PUSH.mark("namefix", es[0]["at"])     # first look only remembers; later ones announce
+                elif last is None:
+                    PUSH.mark("namefix", 0)
             if n % 15 == 0:
                 backups = list_backups(env)
                 if backups and env.get("BACKUP_SCHEDULE", "daily") != "off":
