@@ -42,7 +42,7 @@ jobs:
 
       - name: build, try each newer version, build again with the ones that passed
         if: steps.look.outputs.found == 'yes'
-        run: sudo VERSION_BOT_ALL="${{ github.event_name == 'workflow_dispatch' && '1' || '' }}" ci/app-versions.sh
+        run: sudo NEWER_FILE=newer.txt ci/app-versions.sh
 
       - name: release
         if: steps.look.outputs.found == 'yes' && vars.APP_VERSIONS_AUTORELEASE != 'no'

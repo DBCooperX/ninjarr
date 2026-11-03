@@ -10,7 +10,7 @@ JOBS_DIR="$ROOT/.state/jobs"
 JOB_SERVICES="aiostreams prowlarr sonarr radarr bazarr emby seerr dojo dispatcharr caddy"
 
 job_command() { # job_command LINE — prints the bootstrap.sh arguments for an allowed request
-  local cmd arg extra
+  local cmd arg arg2 extra
   read -r cmd arg arg2 extra <<<"$1"
   [[ -z "${extra:-}" ]] || return 1
   case "$cmd" in
@@ -77,17 +77,7 @@ run_jobs() {
 }
 
 # The systemd units that run the queue whenever Dojo adds something
-# Logs from before ninjarr kept the password out of them: blank it there (run on every build)
-scrub_job_logs() {
-  local f text
-  [[ -n "${ADMIN_PASSWORD:-}" && -d "$JOBS_DIR" ]] || return 0
-  while IFS= read -r f; do
-    text=$(<"$f"); printf '%s\n' "${text//"$ADMIN_PASSWORD"/••••••••}" >"$f"
-  done < <(grep -rlF -- "$ADMIN_PASSWORD" "$JOBS_DIR" --include=log 2>/dev/null)
-}
-
 install_jobs_runner() {
-  scrub_job_logs
   mkdir -p "$JOBS_DIR/queue"; chmod 700 "$ROOT/.state" "$JOBS_DIR"
   command -v systemctl >/dev/null && [[ -d /run/systemd/system ]] || { info "no systemd — Dojo's buttons work only while bootstrap.sh runs"; return 0; }
   cat >/etc/systemd/system/ninjarr-jobs.service <<EOF

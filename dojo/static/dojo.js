@@ -118,7 +118,6 @@ function showLogin() {
 
 // ───────────────────────── main shell
 const PAGES = [["home", "Home"], ["stats", "Stats"], ["library", "Library"], ["settings", "Settings"], ["system", "System"]];
-const OLD = { health: "home", stack: "library", activity: "library", backups: "system" };   // bookmarks from before
 function shell() {
   app.innerHTML = `<div class="shell">
   <nav class="rail" aria-label="Dojo">
@@ -142,7 +141,6 @@ function shell() {
 async function go(p, how = "push") {
   if (p.includes("/")) { const [page, sec] = p.split("/"); if (page === "stats" && sec === "system") S.stab = "system"; else S.openSection = sec; p = page; }
   const asked = p;
-  p = OLD[p] || p;
   if (!PAGES.some(([id]) => id === p)) p = "home";
   if (p !== asked && how !== "push") how = "replace";       // an old or unknown address: show the current one
   if (S.dirty && S.page === "settings" && p !== "settings") {
@@ -386,7 +384,7 @@ async function pageHome() {
           <div><h3>${esc(c.label)}</h3>${c.detail ? `<div class="detail">${esc(c.detail)}</div>` : ""}</div>
           ${fixButton(c.fix)}</div>`;
     const attention = [...fails, ...warns];
-    const now = (h && h.now) || [], recent = (h && h.recent) || [], wk = (h && h.week) || {};
+    const now = (h && h.now) || [], recent = (h && h.recent) || [], wk = (h && h.week) || {}, tr = (h && h.traffic) || {};
     const stuck = (h && h.stuck) || [];
     const art = (now.find(x => x.art) || recent.find(x => x.art) || {}).art;
     const node = l => `<div class="node">${l.app ? appIcon(l.app.name, l.app.icon) : ""}<span class="st" aria-hidden="true"></span></div>`;
@@ -394,7 +392,7 @@ async function pageHome() {
       <section class="hero" ${art ? `style="--art:url('/api/art/${esc(art)}?w=big')"` : ""}>
         <div class="hero-top"><div><p class="verdict ${fails.length ? "fail" : ""}">${verdict}</p><p class="hero-sub">${sub}</p>
           ${now.length ? "" : `<p class="hero-idle"><svg aria-hidden="true"><use href="#i-play"/></svg>Nobody's watching right now</p>`}</div>
-          ${wk.plays ? `<div class="week" title="The last 7 days"><div><b>${hrs(wk.hours)}</b><span>watched this week</span></div><div><b>${wk.plays}</b><span>${wk.plays === 1 ? "play" : "plays"}</span></div><div><b>${wk.viewers}</b><span>${wk.viewers === 1 ? "person" : "people"}</span></div></div>` : ""}</div>
+          ${wk.plays || tr.streamed_mb ? `<div class="week">${wk.plays ? `<div title="The last 7 days"><b>${hrs(wk.hours)}</b><span>watched this week</span></div><div title="The last 7 days"><b>${wk.plays}</b><span>${wk.plays === 1 ? "play" : "plays"}</span></div><div title="The last 7 days"><b>${wk.viewers}</b><span>${wk.viewers === 1 ? "person" : "people"}</span></div>` : ""}${tr.streamed_mb ? `<div title="What Emby sent to your players today, and what AIOStreams fetched from usenet for it"><b>${gbTxt(tr.streamed_mb)}</b><span>streamed today${tr.fetched_mb != null ? ` · ${gbTxt(tr.fetched_mb)} from usenet` : ""}</span></div>` : ""}</div>` : ""}</div>
         <div class="chain" role="list" aria-label="The streaming chain">${links.map(l => `
           <div class="link ${l.s}" role="listitem" aria-label="${l.what}: ${l.s}">${l.app
             ? `<a class="step" href="${lanUrl(l.app.port)}" target="_blank" rel="noopener" title="Open ${CHAIN_APP[l.what]}">${node(l)}<div class="what">${l.what}</div></a>`
@@ -794,7 +792,8 @@ async function systemStats() {
   const chart = (title, cfg, cap) => `<div><h3 class="sub">${title}</h3><div class="panel wchart">${colChart({ labels: d.labels, height: 150, ...cfg })}<p class="cap">${cap}</p></div></div>`;
   const one = (name, k) => [{ name, color: "var(--s1)", values: d.series[k] }];
   const dns = d.dns, oom = d.oom.filter(o => Date.now() / 1000 - o.at < 7 * 86400);
-  const net = n => n ? `<span title="in · out">↓ ${n.in} · ↑ ${n.out}</span>` : "–";
+  const vol = mb => mb >= 1048576 ? `${(mb / 1048576).toFixed(1)} TB` : gbTxt(mb);
+  const net = n => n ? `<span title="received · sent">↓ ${vol(n.in)} · ↑ ${vol(n.out)}</span>` : "–";
   return `
     <div class="now">
       <div><b>${N.cpu_pct == null ? "–" : Math.round(N.cpu_pct) + "%"}</b><span>CPU now${N.cores ? ` · ${N.cores} cores` : ""}</span></div>
@@ -804,6 +803,7 @@ async function systemStats() {
       ${dpct != null ? `<div><b>${dpct}%</b><span>of ${gbTxt(N.disk_size_mb)} disk used${dk ? ` · ${dk}` : ""}</span></div>` : ""}
     </div>
     <div class="wfacts">
+      ${d.net_mb ? `<span>The VM received <b>${vol(d.net_mb.in)}</b> and sent <b>${vol(d.net_mb.out)}</b> in the last ${span}</span>` : ""}
       <span>App ceilings add up to <b>${gbTxt(d.ceilings_mb)}</b> of <b>${gbTxt(N.mem_total_mb)}</b> — they rarely all peak at once</span>
       ${oom.length ? `<span class="meh">${plural(oom.length, "app")} cut off at the ceiling this week</span>` : ""}
       ${dns.piles_7d ? `<span class="meh">DNS piled up ${plural(dns.piles_7d, "time")} this week</span>` : ""}
@@ -814,20 +814,20 @@ async function systemStats() {
       ${chart("Memory in use", { unit: "", suffix: " GB", series: one("In use", "mem") }, `The most in use in each ${unit}, in GB, of ${gbTxt(N.mem_total_mb)}.`)}
       ${chart("Waiting for memory", { suffix: "%", series: one("Waiting", "wait") }, `The worst 5 minutes in each ${unit}: how much of the time apps were stuck waiting for memory. Near 0 is normal; it climbs before a VM freezes.`)}
       ${chart("CPU", { suffix: "%", series: one("CPU", "cpu") }, `Average in each ${unit}, all cores together. Emby converting a video shows up here.`)}
-      ${chart("Network", { suffix: " Mbit/s", grouped: true, series: [{ name: "In", color: "var(--s1)", values: d.series.in }, { name: "Out", color: "var(--s2)", values: d.series.out }] },
-        `Average Mbit/s through the VM's network card in each ${unit}: streams to your players, downloads, everything.`)}
+      ${chart("Network", { suffix: " GB", grouped: true, series: [{ name: "Received", color: "var(--s1)", values: d.series.in }, { name: "Sent", color: "var(--s2)", values: d.series.out }] },
+        `GB through the VM's network card in each ${unit}: streams to your players, usenet downloads, everything.`)}
     </div>
 
     <div class="wchap"><h2 class="chap">Apps</h2></div>
-    <div class="tablewrap"><table class="ptable systable"><thead><tr><th>App</th><th>Memory</th><th class="sp-c">Last ${span}</th><th class="tr-c">Where it's heading</th><th>CPU</th><th>Network <span class="muted">Mbit/s</span></th></tr></thead><tbody>
+    <div class="tablewrap"><table class="ptable systable"><thead><tr><th>App</th><th>Memory</th><th class="sp-c">Last ${span}</th><th class="tr-c">Where it's heading</th><th>CPU</th><th>Transferred <span class="muted">${span}</span></th></tr></thead><tbody>
       ${d.apps.map(a => `<tr><td>${appIcon(a.label)}${esc(a.label)}</td>
         <td class="memc"><div class="mem-t"><b>${gbTxt(a.mb)}</b>${a.limit_mb ? `<span class="muted"> of ${gbTxt(a.limit_mb)}</span>` : ""}</div>
           ${a.limit_mb ? `<span class="hb-t"><span style="width:${Math.min(100, Math.max(2, 100 * a.mb / a.limit_mb))}%${a.mb > 0.85 * a.limit_mb ? ";background:var(--warn)" : ""}"></span></span>` : ""}
           <div class="tr-m small">${trendTxt(a.trend)}</div></td>
         <td class="sp-c">${spark(a.spark, a.limit_mb)}</td><td class="tr-c">${trendTxt(a.trend)}</td>
-        <td class="num">${a.cpu == null ? "–" : Math.round(a.cpu) + "%"}</td><td class="num">${net(a.net)}</td></tr>`).join("")}
+        <td class="num">${a.cpu == null ? "–" : Math.round(a.cpu) + "%"}</td><td class="num netc">${net(a.net)}${a.traffic && a.traffic.some(v => v) ? spark(a.traffic).replace('class="spark"', 'class="spark spark-net"') : ""}</td></tr>`).join("")}
     </tbody></table></div>
-    <p class="cap">Memory and its line against the app's ceiling (the dashed top) · where it's heading: the lowest it falls back to, over two days or more · CPU as of the last reading (100% is one core) · network: in and out over the last 5 minutes.</p>
+    <p class="cap">Memory and its line against the app's ceiling (the dashed top) · where it's heading: the lowest it falls back to, over two days or more · CPU as of the last reading (100% is one core) · transferred: what the app received (↓) and sent (↑) in the last ${span}, and its line both ways together, on its own network connection: AIOStreams' ↓ is what it fetched from usenet, Emby's ↑ what went out to your players.</p>
 
     ${dns.piles_7d ? `<div class="wchap"><h2 class="chap">DNS pile-ups</h2></div>
     <p class="lead-s">Docker answers the apps' name lookups. When more than it can hold are waiting at once, they fail until it catches up. It often comes with memory running short — compare with Waiting for memory above.</p>

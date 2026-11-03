@@ -72,7 +72,7 @@ namefix_log() { # namefix_log APP fixed|partly TITLE FILES
 # namefix_link APP GROUP — links the files of one stuck download that holds broken names; prints
 # how many (-1: no broken names, not ours to fix)
 namefix_link() {
-  local app=$1 g=$2 path media dir f name n=0 best="" size=0 s e ep series files dest
+  local app=$1 g=$2 path media dir f name n=0 best="" size=0 s e ep eps series files dest
   path=$(jq -r .path <<<"$g"); media=$(jq -r .media <<<"$g")
   dir="$NINJARR_DATA/stream/${path#/mnt/}"
   [[ "$path" == /mnt/aiostreams/* && -d "$dir" ]] || { echo -1; return 0; }
@@ -94,11 +94,12 @@ namefix_link() {
   else
     series=$(api GET "$BASE/series/$media") || { echo 0; return 0; }
     files=$(api GET "$BASE/episodefile?seriesId=$media") || files='[]'
+    eps=$(api GET "$BASE/episode?seriesId=$media") || eps='[]'      # once, not once per file
     for f in "${videos[@]}"; do
       name=${f##*/}
       [[ "$name" =~ [Ss]([0-9]{1,2})[._\ -]?[Ee]([0-9]{1,3}) ]] || continue
       s=$((10#${BASH_REMATCH[1]})); e=$((10#${BASH_REMATCH[2]}))
-      ep=$(api GET "$BASE/episode?seriesId=$media&seasonNumber=$s" | jq -c --argjson e "$e" 'first(.[] | select(.episodeNumber == $e)) // empty')
+      ep=$(jq -c --argjson s "$s" --argjson e "$e" 'first(.[] | select(.seasonNumber == $s and .episodeNumber == $e)) // empty' <<<"$eps")
       [[ -n "$ep" && "$(jq -r .hasFile <<<"$ep")" == false ]] || continue
       # next to the season's other episodes, else in Sonarr's usual season folder
       dest=$(jq -r --argjson s "$s" 'first(.[] | select(.seasonNumber == $s) | .path) // empty' <<<"$files")
@@ -126,7 +127,7 @@ namefix_done() {
 }
 
 namefix_app() {
-  local app=$1 queue stuck now g id title first line n at count state broken dir
+  local app=$1 queue stuck now g id title first line n at count state broken dir all_in
   local seenf="$ROOT/.state/namefix.seen" pend="$ROOT/.state/namefix.pending" seen="" keep=""
   arr_use "$app"
   queue=$(api GET "$BASE/queue?pageSize=1000") || return 0
@@ -149,12 +150,17 @@ namefix_app() {
     line=$(awk -v a="$app" -v i="$id" '$1 == a && $2 == i {print; exit}' "$pend" 2>/dev/null || true)
     if [[ -n "$line" ]]; then
       read -r _ _ at count state <<<"$line"
-      # whatever is still missing (an earlier ninjarr linked only the broken names)
-      if [[ "$state" == wait ]] && ! namefix_done "$app" "$g"; then
-        n=$(namefix_link "$app" "$g" || echo 0)
-        (( ${n:-0} > 0 )) && { count=$((count + n)); namefix_say "${title}: linked $n more file(s), $APP_NAME rescans" ok; }
+      # whatever is still missing (an earlier ninjarr linked only the broken names); a rescan
+      # takes a moment, so whatever is linked now is looked for on the next pass
+      all_in=0
+      if [[ "$state" == wait ]]; then
+        if namefix_done "$app" "$g"; then all_in=1
+        else
+          n=$(namefix_link "$app" "$g" || echo 0)
+          (( ${n:-0} > 0 )) && { count=$((count + n)); namefix_say "${title}: linked $n more file(s), $APP_NAME rescans" ok; }
+        fi
       fi
-      if [[ "$state" == wait ]] && namefix_done "$app" "$g"; then
+      if (( all_in )); then
         # the files are in: the stuck entry goes, the download stays (the library plays from it)
         api DELETE "$BASE/queue/bulk?removeFromClient=false&blocklist=false" "$(jq -c '{ids: .q}' <<<"$g")" >/dev/null \
           && { namefix_log "$app" fixed "$title" "$count"; namefix_say "${title}: all in — taken out of $APP_NAME's queue (the download stays)" ok; continue; }

@@ -373,6 +373,9 @@ compose_up() {
   if [[ "${IPTV:-no}" != yes ]] && docker inspect dispatcharr >/dev/null 2>&1; then
     docker rm -f dispatcharr >/dev/null && info "Dispatcharr removed (IPTV is off; its data stays in appdata/dispatcharr)"
   fi
+  if [[ -z "${DOMAIN:-}" ]] && docker inspect caddy >/dev/null 2>&1; then
+    docker rm -f caddy >/dev/null && info "Caddy removed (no domain any more; ports 80 and 443 are free again)"
+  fi
   # Caddy reads its config once: a new domain or Dojo address takes effect with a reload (no downtime)
   if [[ -n "${DOMAIN:-}" ]] && [[ "$(docker inspect -f '{{.State.Running}}' caddy 2>/dev/null)" == true ]]; then
     docker exec caddy caddy reload --config /etc/caddy/Caddyfile >>"$LOG" 2>&1 || warn "Caddy didn't take the new config — see log"

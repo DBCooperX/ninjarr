@@ -11,6 +11,7 @@ shows. After that it asks for the ninjarr login.
 import hmac
 import json
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 import os
 import sys
 import queue
@@ -76,7 +77,7 @@ app = Flask(__name__, static_folder=None)
 # changes whenever Dojo's page or code changes, so an open tab can tell it's out of date
 HERE = Path(__file__).parent
 BUILD = __import__("hashlib").sha1(b"".join((HERE / f).read_bytes() for f in (
-    "app.py", "history.py", "push.py", "templates/index.html", "static/dojo.css", "static/dojo.js", "static/sw.js"))).hexdigest()[:12]
+    *sorted(p.name for p in HERE.glob("*.py")), "templates/index.html", "static/dojo.css", "static/dojo.js", "static/sw.js"))).hexdigest()[:12]
 PAGE = (HERE / "templates" / "index.html").read_text().replace("{{BUILD}}", BUILD)
 
 
@@ -145,9 +146,8 @@ def setup_mode(env=None):
 def secret_key():
     f = DOJO_STATE / "secret-key"
     if not f.exists():
-        old = STATE / "dojo-secret"          # where it lived before Dojo's own folder: keeps sessions
         DOJO_STATE.mkdir(parents=True, exist_ok=True)
-        f.write_text(old.read_text().strip() if old.exists() else secrets.token_hex(32))
+        f.write_text(secrets.token_hex(32))
         os.chmod(f, 0o600)
     return f.read_text().strip()
 
@@ -741,6 +741,17 @@ def get_json(name, path, env, default=None):
         return default
 
 
+# Independent calls to the apps run side by side, so a page waits for the slowest call, not for all
+# of them in a row. Only ever used one level deep: a task given to the pool never uses the pool itself.
+_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="fetch")
+
+
+def parallel(jobs):
+    """{key: fn} → {key: fn()}, run at once."""
+    futures = {k: _pool.submit(fn) for k, fn in jobs.items()}
+    return {k: f.result() for k, f in futures.items()}
+
+
 # ─────────────────────────────────────────────── health
 def check(group, label, status, detail="", fix=None):
     return {"group": group, "label": label, "status": status, "detail": detail, "fix": fix}
@@ -824,11 +835,11 @@ def namefix_checks():
     left = [e for e in es if e["state"] == "partly" and e["at"] > time.time() - 2 * 86400]
     if left:
         e = left[0]
-        port, page = (8989, "/activity/queue") if e["app"] == "sonarr" else (7878, "/activity/queue")
+        port = 8989 if e["app"] == "sonarr" else 7878
         return [check("Streaming chain", "Broken file names", "warn",
                       f"{e['title']}: some files have broken names and couldn't be imported for you. "
                       f"In {e['app'].capitalize()}, use Manual Import on that download, or remove it from the queue with \"Blocklist release\" ticked.",
-                      {"open": port, "path": page, "label": f"Open {e['app'].capitalize()}"})]
+                      {"open": port, "path": "/activity/queue", "label": f"Open {e['app'].capitalize()}"})]
     fixed = [e for e in es if e["state"] == "fixed"]
     if fixed:
         n = len(fixed)
@@ -856,8 +867,7 @@ def api_health():
     return jsonify(checks=shared_health())
 
 
-def gb(mb):
-    return f"{mb / 1024:.1f} GB" if mb >= 1024 else f"{mb} MB"
+gb = sysstats.gb
 
 
 def memory_check(hs):
@@ -891,28 +901,30 @@ def health_checks(env):
     status_paths = {"sonarr": "/api/v3/system/status", "radarr": "/api/v3/system/status",
                     "prowlarr": "/api/v1/system/status", "emby": "/emby/System/Info",
                     "seerr": "/api/v1/status", "bazarr": "/api/system/status"}
-    up = {}
-    for name, path in status_paths.items():
-        js = get_json(name, path, env)
+
+    def aio_answers():
+        try:
+            return requests.get(APPS["aiostreams"] + "/api/v1/sabnzbd/api", timeout=T, params={
+                "mode": "version", "output": "json", "apikey": f"arr:{env.get('ARR_CLIENT_PASSWORD', '')}"}).ok
+        except requests.RequestException:
+            return False
+    got = parallel({**{name: (lambda n=name, p=path: get_json(n, p, env)) for name, path in status_paths.items()},
+                    "aiostreams": aio_answers})
+    up = {"aiostreams": got["aiostreams"]}
+    for name in status_paths:
+        js = got[name]
         up[name] = js is not None
         ver = (js or {}).get("version") or (js or {}).get("Version") or ((js or {}).get("data") or {}).get("bazarr_version")
         out.append(check("Apps", name.capitalize(), "ok" if js is not None else "fail",
                          f"version {ver}" if ver else ("" if js is not None else "not answering"),
                          None if js is not None else restart(name)))
-    try:
-        sab = requests.get(APPS["aiostreams"] + "/api/v1/sabnzbd/api", timeout=T, params={
-            "mode": "version", "output": "json", "apikey": f"arr:{env.get('ARR_CLIENT_PASSWORD', '')}"})
-        up["aiostreams"] = sab.ok
-    except requests.RequestException:
-        up["aiostreams"] = False
     out.append(check("Apps", "AIOStreams", "ok" if up["aiostreams"] else "fail",
                      "download client API answers" if up["aiostreams"] else "not answering",
                      None if up["aiostreams"] else restart("aiostreams")))
 
-    app_warnings = {}
-    for name in ("sonarr", "radarr"):
-        if not up[name]:
-            continue
+    def arr_checks(name):
+        """Sonarr's or Radarr's part of the chain: its checks, and what it warns about itself."""
+        out = []
         label = name.capitalize()
         fs = get_json(name, "/api/v3/filesystem?path=/mnt/aiostreams/usenet/completed/&allowFoldersWithoutTrailingSlashes=true", env)
         mounted = isinstance(fs, dict) and "directories" in fs
@@ -934,7 +946,12 @@ def health_checks(env):
         good = bool(roots) and all(r.get("accessible") for r in roots)
         out.append(check("Streaming chain", f"{label} library folder", "ok" if good else "fail",
                          ", ".join(r.get("path", "") for r in roots) if good else "missing or not accessible", None if good else rewire))
-        app_warnings[label] = [h.get("message", "") for h in get_json(name, "/api/v3/health", env, []) or []]
+        return out, [h.get("message", "") for h in get_json(name, "/api/v3/health", env, []) or []]
+
+    app_warnings = {}
+    for name, (rows, warnings) in parallel({n: (lambda n=n: arr_checks(n)) for n in ("sonarr", "radarr") if up[n]}).items():
+        out += rows
+        app_warnings[name.capitalize()] = warnings
 
     out += namefix_checks()
 
@@ -1836,7 +1853,8 @@ def api_home():
     t = history.totals(time.time() - 7 * 86400) or {}
     return jsonify(now=now, recent=cached("recent-added", 120, lambda: recently_added(env)),
                    stuck=cached("stuck-imports", 20, lambda: stuck_imports(env)),
-                   week={"hours": t.get("hours"), "plays": t.get("plays"), "viewers": t.get("viewers"), "titles": t.get("titles")})
+                   week={"hours": t.get("hours"), "plays": t.get("plays"), "viewers": t.get("viewers"), "titles": t.get("titles")},
+                   traffic=sysstats.today_traffic(STATE))
 
 
 @app.get("/api/watching/history")
@@ -2144,11 +2162,13 @@ def collect_library(env):
         for p in get_json(name, "/api/v3/qualityprofile", env, []) or []:
             profiles[(name, p["id"])] = p.get("cutoffFormatScore") or 0
     series = get_json("sonarr", "/api/v3/series", env, []) or []
-    for s_ in series:
-        if not (s_.get("statistics") or {}).get("episodeFileCount"):
-            continue
+    with_files = [s_ for s_ in series if (s_.get("statistics") or {}).get("episodeFileCount")]
+    # Sonarr lists episode files one series at a time: ask for all of them at once
+    ep_files = parallel({s_["id"]: (lambda i=s_["id"]: get_json("sonarr", f"/api/v3/episodefile?seriesId={i}", env, []) or [])
+                         for s_ in with_files})
+    for s_ in with_files:
         cut = profiles.get(("sonarr", s_.get("qualityProfileId")), 0)
-        for f in get_json("sonarr", f"/api/v3/episodefile?seriesId={s_['id']}", env, []) or []:
+        for f in ep_files[s_["id"]]:
             ok_, how = file_language(f, lang)
             files.append({"app": "sonarr", "title": s_.get("title"), "formats": [c.get("name") for c in f.get("customFormats") or []],
                           "in_lang": ok_, "lang_by": how, "ep": episode_code(f), "slug": s_.get("titleSlug"),
@@ -2198,7 +2218,7 @@ def collect_library(env):
                 f["usenet"], f["nzo"], hit["used"] = hit["status"], hit["nzo"], True
         # releases with problems that no library file plays from any more (Sonarr/Radarr replaced them)
         plays = {"unused": sum(1 for h in entries if not h["used"])}
-    return {"files": files, "series": sum(1 for s_ in series if (s_.get("statistics") or {}).get("episodeFileCount")),
+    return {"files": files, "series": len(with_files),
             "movies": sum(1 for m in movies if m.get("hasFile")),
             "missing": {"episodes": wanted.get("totalRecords", len(missing_eps)), "episode_titles": missing_eps,
                         "movies": len(missing_movies), "movie_titles": missing_movies[:8]},

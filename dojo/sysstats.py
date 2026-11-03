@@ -39,17 +39,33 @@ def _num(x):
         return None
 
 
-def read_system(state, since=0):
-    """.state/system.tsv: time, CPU %, memory available MB, swap used MB, % of time waiting for
-    memory (some apps / all apps), disk used / size MB, DNS pile-ups, network bytes in / out."""
-    out = []
+# The host rewrites these files every 5 minutes, while Home asks for its checks every 20 seconds:
+# each file is parsed once per change, then only filtered.
+_parsed = {}
+
+
+def _rows(path, parse):
     try:
-        lines = (state / "system.tsv").read_text().splitlines()
+        st = path.stat()
     except OSError:
-        return out
+        return None
+    sig = (st.st_mtime_ns, st.st_size)
+    hit = _parsed.get(path)
+    if hit and hit[0] == sig:
+        return hit[1]
+    try:
+        rows = parse(path.read_text().splitlines())
+    except OSError:
+        return None
+    _parsed[path] = (sig, rows)
+    return rows
+
+
+def _parse_system(lines):
+    out = []
     for line in lines:
         p = [_num(x) for x in line.split("\t")]
-        if len(p) < 9 or p[0] is None or p[0] < since:
+        if len(p) < 9 or p[0] is None:
             continue
         out.append({"t": p[0], "cpu": p[1] or 0, "avail": p[2], "swap": p[3] or 0, "some": p[4] or 0, "full": p[5] or 0,
                     "dused": p[6], "dsize": p[7], "piles": int(p[8] or 0),
@@ -57,19 +73,20 @@ def read_system(state, since=0):
     return out
 
 
-def read_memory(state, since=0):
-    """.state/memory.tsv: time, app, MB, and (since 1.0.3) CPU %, network in / out MB since the app started."""
+def read_system(state, since=0):
+    """.state/system.tsv: time, CPU %, memory available MB, swap used MB, % of time waiting for
+    memory (some apps / all apps), disk used / size MB, DNS pile-ups, network bytes in / out."""
+    return [r for r in _rows(state / "system.tsv", _parse_system) or [] if r["t"] >= since]
+
+
+def _parse_memory(lines):
     by = defaultdict(list)
-    try:
-        lines = (state / "memory.tsv").read_text().splitlines()
-    except OSError:
-        return by
     for line in lines:
         p = line.split("\t")
         if len(p) < 3:
             continue
         t, mb = _num(p[0]), _num(p[2])
-        if t is None or mb is None or t < since:
+        if t is None or mb is None:
             continue
         by[p[1]].append({"t": t, "mb": mb, "cpu": _num(p[3]) if len(p) > 3 else None,
                          "rx": _num(p[4]) if len(p) > 4 else None, "tx": _num(p[5]) if len(p) > 5 else None})
@@ -78,17 +95,58 @@ def read_memory(state, since=0):
     return by
 
 
-def read_dns(state, since=0):
-    c = Counter()
-    try:
-        lines = (state / "dns.tsv").read_text().splitlines()
-    except OSError:
-        return c
+def read_memory(state, since=0):
+    """.state/memory.tsv: time, app, MB, and (since 1.0.3) CPU %, network in / out MB since the app started."""
+    by = defaultdict(list)
+    for app, rs in (_rows(state / "memory.tsv", _parse_memory) or {}).items():
+        kept = [r for r in rs if r["t"] >= since]
+        if kept:
+            by[app] = kept
+    return by
+
+
+def _parse_dns(lines):
+    out = []
     for line in lines:
         p = line.split("\t")
-        if len(p) >= 3 and (_num(p[0]) or 0) >= since:
-            c[p[1]] += int(_num(p[2]) or 0)
+        if len(p) >= 3:
+            out.append((_num(p[0]) or 0, p[1], int(_num(p[2]) or 0)))
+    return out
+
+
+def read_dns(state, since=0):
+    c = Counter()
+    for t, name, n in _rows(state / "dns.tsv", _parse_dns) or []:
+        if t >= since:
+            c[name] += n
     return c
+
+
+def transferred(rows, since, rx="rx", tx="tx"):
+    """How much went in and out from SINCE on, from counters that run from a start (an app's since it
+    started, the VM's since it booted): each reading's growth over the one before; a counter that
+    fell had restarted, so all it holds is new."""
+    got, prev, seen = {"in": 0.0, "out": 0.0}, None, False
+    for r in rows:
+        if r[rx] is None or r[tx] is None:
+            prev = None
+            continue
+        if prev is not None and r["t"] >= since:
+            for k, key in (("in", rx), ("out", tx)):
+                got[k] += r[key] - prev[key] if r[key] >= prev[key] else r[key]
+            seen = True
+        prev = r
+    return got if seen else None
+
+
+def today_traffic(state):
+    """For Home: what Emby sent to the players today, and what AIOStreams fetched from usenet for it."""
+    midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    rows = read_memory(state, midnight - 3600)          # the reading before midnight is the starting point
+    emby, aio = transferred(rows.get("emby", []), midnight), transferred(rows.get("aiostreams", []), midnight)
+    if not emby and not aio:
+        return None
+    return {"streamed_mb": round(emby["out"]) if emby else None, "fetched_mb": round(aio["in"]) if aio else None}
 
 
 # ── right now, straight from the kernel
@@ -220,11 +278,10 @@ def page(state, hs, window="24h"):
     prev = None
     for r in srows_all:
         i = int((r["t"] - first) // step)
-        if prev and r["rx"] is not None and prev["rx"] is not None and r["rx"] >= prev["rx"] and 0 < r["t"] - prev["t"] <= 3600:
-            dt = r["t"] - prev["t"]
-            if 0 <= i < n:
-                acc[i]["in"].append((r["rx"] - prev["rx"]) * 8 / dt / 1e6)
-                acc[i]["out"].append((r["tx"] - prev["tx"]) * 8 / dt / 1e6)
+        # GB through the VM's network card in each bucket (the counters restart at a reboot)
+        if prev and r["rx"] is not None and prev["rx"] is not None and 0 <= i < n:
+            acc[i]["in"].append((r["rx"] - prev["rx"] if r["rx"] >= prev["rx"] else r["rx"]) / 2**30)
+            acc[i]["out"].append((r["tx"] - prev["tx"] if r["tx"] >= prev["tx"] else r["tx"]) / 2**30)
         prev = r
         if not 0 <= i < n:
             continue
@@ -235,7 +292,7 @@ def page(state, hs, window="24h"):
     pick = lambda k, f: [round(f(acc[i][k]), 2) if acc[i][k] else 0 for i in range(n)]
     avg = lambda v: sum(v) / len(v)
     series = {"cpu": pick("cpu", avg), "wait": pick("wait", max), "mem": pick("mem", max),
-              "in": pick("in", avg), "out": pick("out", avg)}
+              "in": pick("in", sum), "out": pick("out", sum)}
 
     # the apps: now, their memory over the period against their ceiling, and where it's heading
     mrows = read_memory(state, now - 7 * 86400)
@@ -245,19 +302,20 @@ def page(state, hs, window="24h"):
         if name not in NAMES or not rs or now - rs[-1]["t"] > 3600:
             continue
         last = rs[-1]
-        spark = [None] * n
-        for r in rs:
+        spark, traffic = [None] * n, [None] * n
+        for j, r in enumerate(rs):
             i = int((r["t"] - first) // step)
             if 0 <= i < n:
                 spark[i] = max(spark[i] or 0, r["mb"])
-        net = None
-        if len(rs) > 1 and last["rx"] is not None and rs[-2]["rx"] is not None and last["rx"] >= rs[-2]["rx"]:
-            dt = last["t"] - rs[-2]["t"]
-            if 0 < dt <= 3600:
-                net = {"in": round((last["rx"] - rs[-2]["rx"]) * 8.389 / dt, 2), "out": round((last["tx"] - rs[-2]["tx"]) * 8.389 / dt, 2)}
+                # MB in and out together in each bucket, for the traffic line
+                pr = rs[j - 1] if j else None
+                if pr and r["rx"] is not None and pr["rx"] is not None and r["tx"] is not None and pr["tx"] is not None:
+                    d = (r["rx"] - pr["rx"] if r["rx"] >= pr["rx"] else r["rx"]) + (r["tx"] - pr["tx"] if r["tx"] >= pr["tx"] else r["tx"])
+                    traffic[i] = round((traffic[i] or 0) + d, 1)
+        net = transferred(rs, since)       # MB in and out over the period shown
         lim = limits.get(name)
         apps.append({"name": name, "label": nice(name), "mb": round(last["mb"]), "limit_mb": lim, "cpu": last["cpu"],
-                     "net": net, "spark": spark, "trend": app_trend(rs, lim)})
+                     "net": net, "spark": spark, "traffic": traffic, "trend": app_trend(rs, lim)})
     apps.sort(key=lambda a: -a["mb"])
 
     dns = read_dns(state, now - 7 * 86400)
@@ -272,6 +330,8 @@ def page(state, hs, window="24h"):
         "now": {**lv, "mem_total_mb": total, "cores": ((hs or {}).get("system") or {}).get("cores"),
                 "disk_used_mb": last["dused"] if last else None, "disk_size_mb": last["dsize"] if last else None},
         "ceilings_mb": sum(v for v in limits.values() if v),
+        # the whole VM over the period, in MB (its counters are bytes)
+        "net_mb": {k: round(v / 1048576) for k, v in (transferred(srows_all, since) or {}).items()} or None,
         "apps": apps,
         "disk": disk_trend(srows_all),
         "dns": {"piles_24h": sum(r["piles"] for r in piles if r["t"] >= now - 86400), "piles_7d": sum(r["piles"] for r in piles),

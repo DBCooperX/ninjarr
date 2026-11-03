@@ -30,8 +30,10 @@ say "building with today's versions"
 ./bootstrap.sh
 ./bootstrap.sh doctor
 
-# 3. each newer version on its own; a failing one rolls back and is left out
-mapfile -t found < <(python3 ci/newer_versions.py versions.env)
+# 3. each newer version on its own; a failing one rolls back and is left out. The workflow already
+# looked (NEWER_FILE): the same list, without asking every registry again
+if [[ -n "${NEWER_FILE:-}" ]]; then mapfile -t found <"$NEWER_FILE"
+else mapfile -t found < <(python3 ci/newer_versions.py versions.env); fi
 (( ${#found[@]} )) || { say "nothing newer"; exit 0; }
 passed=() failed=()
 for line in "${found[@]}"; do

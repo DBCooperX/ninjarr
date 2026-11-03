@@ -31,7 +31,6 @@ typed() {
   pause 0.2; printf '\n'
 }
 secret() { printf '   %s%s%s %s ' "$DR" "$ARROW" "$X" "$1"; pause 1.1; printf '\n'; }
-yesno()  { local hint="[y/N]"; [[ "$2" == y ]] && hint="[Y/n]"; typed "$1 $DD$hint$X" "" "$3"; }
 
 banner
 pause 0.6

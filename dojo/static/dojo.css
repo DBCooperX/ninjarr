@@ -549,10 +549,12 @@ details.pb > summary .muted { font-size: .88rem; }
 .mem-t b { color: var(--text); font-weight: 600; }
 .spark { display: block; }
 .spark path { fill: none; stroke: var(--s1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.spark-net { margin: 4px 0 0 auto; width: 96px; height: 22px; }
+.spark-net path { stroke: var(--s2); stroke-width: 1.5; }
 .spark .ceil { stroke: var(--axis); stroke-width: 1; stroke-dasharray: 3 3; }
 .tr-m { display: none; margin-top: 4px; white-space: normal; max-width: 190px; }
 @media (max-width: 700px) {
   .seg-sys::before { display: none; }
-  .systable .sp-c, .systable .tr-c { display: none; }
+  .systable .sp-c, .systable .tr-c, .systable .spark-net { display: none; }
   .tr-m { display: block; }
 }

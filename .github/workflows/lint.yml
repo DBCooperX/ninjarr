@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v6
       - name: syntax-check the dojo backend
         run: |
-          python3 -m py_compile dojo/app.py dojo/history.py dojo/push.py dojo/upstream.py ci/newer_versions.py
+          python3 -m py_compile dojo/*.py dojo/catalog/update.py ci/newer_versions.py
           node --check dojo/static/dojo.js && node --check dojo/static/sw.js
 
   env-example:

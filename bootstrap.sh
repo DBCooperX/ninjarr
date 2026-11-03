@@ -19,7 +19,7 @@
 #   ./bootstrap.sh down         stop the stack (data stays)
 set -Eeuo pipefail
 
-NINJARR_VERSION="1.0.7"
+NINJARR_VERSION="1.1.0"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${NINJARR_ENV:-$ROOT/ninjarr.env}"
 LOG="$ROOT/.ninjarr.log"
@@ -225,6 +225,14 @@ update_prepare() {
 }
 
 # ═══════════════════════════════════════════════ main
+# what every install, update, restore and import ends with
+build_stack() {
+  ensure_secrets
+  prepare_host
+  compose_up
+  wire_all
+}
+
 needs_setup() { ! env_load || [[ -z "${USENET_PROVIDERS:-}" || "$USENET_PROVIDERS" == "[]" ]]; }
 
 main() {
@@ -279,18 +287,12 @@ main() {
         web_setup; return 0             # the build itself ran as the page's job
       fi
       load_or_ask
-      ensure_secrets
-      prepare_host
-      compose_up
-      wire_all
+      build_stack
       summary ;;
     reconfigure)
       preflight
       load_or_ask force
-      ensure_secrets
-      prepare_host
-      compose_up
-      wire_all
+      build_stack
       summary ;;
     wire)
       STEP_TOTAL=2
@@ -301,12 +303,9 @@ main() {
       STEP_TOTAL=7; [[ "$cmd" == update-pulled ]] && STEP_TOTAL=6   # the backup step ran before the restart
       preflight
       env_load || die "no ninjarr.env — run ./bootstrap.sh first"
-      [[ "$cmd" == update ]] && update_prepare "$@"
+      [[ "$cmd" == update ]] && update_prepare
       drop_outdated_overrides
-      ensure_secrets
-      prepare_host
-      compose_up
-      wire_all
+      build_stack
       summary
       doctor || true ;;
     restore)
@@ -314,10 +313,7 @@ main() {
       preflight
       # just a name (Dojo's restore button): one of ninjarr's own backups, from the backup folder
       if [[ "$2" != */* ]]; then env_load || true; restore "$(backup_dir)/$2"; else restore "$2"; fi
-      ensure_secrets
-      prepare_host
-      compose_up
-      wire_all
+      build_stack
       summary ;;
     import)
       [[ -n "${2:-}" ]] || die "which file? ./bootstrap.sh import /path/to/ninjarr-migrate-<date>.tar"
@@ -325,10 +321,7 @@ main() {
       preflight
       env_load || die "no ninjarr.env — set up ninjarr first, then import"
       import_legacy "$2"
-      ensure_secrets
-      prepare_host
-      compose_up
-      wire_all
+      build_stack
       import_after_wire
       summary ;;
     *) die "unknown command '$cmd' — try ./bootstrap.sh help" ;;
