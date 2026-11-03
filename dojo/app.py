@@ -190,9 +190,19 @@ def api_session():
 def host_status():
     """The VM's update status, written by the host every 5 minutes (bootstrap.sh host-status)."""
     try:
-        return json.loads((STATE / "host.json").read_text())
+        hs = json.loads((STATE / "host.json").read_text())
     except (OSError, ValueError):
         return None
+    # Written before the VM last started (the host refreshes it a few seconds after boot): any restart
+    # it asked for has happened, since what asks for one lives in /run, which a restart empties.
+    try:
+        with open("/proc/uptime") as f:          # the VM's, also inside a container
+            booted = time.time() - float(f.read().split()[0])
+        if isinstance(hs, dict) and hs.get("written", booted) < booted:
+            hs.update(reboot_required=False, reboot_packages=[])
+    except (OSError, ValueError, TypeError):
+        pass
+    return hs
 
 
 @app.get("/api/host")

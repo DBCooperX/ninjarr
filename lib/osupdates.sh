@@ -183,7 +183,7 @@ EOF
 Description=ninjarr: the VM's update status for Dojo
 
 [Timer]
-OnBootSec=1min
+OnBootSec=15s
 OnUnitActiveSec=5min
 
 [Install]
