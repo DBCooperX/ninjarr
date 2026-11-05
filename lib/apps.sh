@@ -362,11 +362,22 @@ emby_livetv() {
   local cfg
   [[ -n "${EMBY_API_KEY:-}" ]] || { warn "Emby: no API key yet — skipped Live TV"; return 0; }
   cfg=$(http GET "$EMBY/System/Configuration/livetv" "" -H "X-Emby-Token: $EMBY_API_KEY") || { warn "Emby: could not read Live TV settings"; return 1; }
-  if jq -e --arg u "$DISPATCHARR_IN/" 'any(.TunerHosts[]?; (.Url // "") | startswith($u))' <<<"$cfg" >/dev/null; then
-    info "Emby: Live TV tuner Dispatcharr"
+  # No stream limit on Emby's side (TunerCount 0): Dispatcharr already keeps to the provider's
+  # limit, shares one connection when several people watch the same channel, and frees a channel
+  # the moment it's left. Emby counting on its own blocked a channel switch while the old stream
+  # was still closing, or a second viewer of the same channel ("simultaneous stream limit").
+  local tuner
+  tuner=$(jq -c --arg u "$DISPATCHARR_IN/" '[.TunerHosts[]? | select((.Url // "") | startswith($u))][0] // empty' <<<"$cfg")
+  if [[ -n "$tuner" ]]; then
+    if [[ "$(jq -r '.TunerCount // 0' <<<"$tuner")" == 0 ]]; then
+      info "Emby: Live TV tuner Dispatcharr"
+    else
+      http POST "$EMBY/LiveTv/TunerHosts" "$(jq -c '.TunerCount = 0' <<<"$tuner")" -H "X-Emby-Token: $EMBY_API_KEY" >/dev/null \
+        && ok "Emby: Live TV tuner Dispatcharr (stream limit left to Dispatcharr)" || warn "Emby: updating the Dispatcharr tuner failed — see log"
+    fi
   else
-    http POST "$EMBY/LiveTv/TunerHosts" "$(jq -nc --arg u "$DISPATCHARR_IN/output/m3u" --argjson n "${IPTV_MAX_STREAMS:-1}" \
-        '{Type: "m3u", Url: $u, FriendlyName: "Dispatcharr", ImportGuideData: false, TunerCount: $n,
+    http POST "$EMBY/LiveTv/TunerHosts" "$(jq -nc --arg u "$DISPATCHARR_IN/output/m3u" \
+        '{Type: "m3u", Url: $u, FriendlyName: "Dispatcharr", ImportGuideData: false, TunerCount: 0,
           AllowHWTranscoding: true, AllowMappingByNumber: true}')" -H "X-Emby-Token: $EMBY_API_KEY" >/dev/null \
       && ok "Emby: Live TV tuner Dispatcharr" || { warn "Emby: adding the Dispatcharr tuner failed — see log"; return 1; }
   fi
