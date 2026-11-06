@@ -12,13 +12,38 @@ BACKUP_EXCLUDES=(
 
 backup_dir() { printf '%s' "${BACKUP_DIR:-$NINJARR_DATA/backups}"; }
 
+# backup_prune DIR N — keeps the newest N of ninjarr's backups in DIR, deletes the rest
+backup_prune() {
+  local dir=$1 n=$2 old
+  (( n >= 1 )) || n=1
+  # names are ninjarr-<date>-<time>.tar.gz (nothing ls could mangle), newest first
+  # shellcheck disable=SC2012
+  while IFS= read -r old; do rm -f "$old"; done < <(ls -1t "$dir"/ninjarr-*.tar.gz 2>/dev/null | tail -n +"$((n + 1))")
+}
+
+# copy_tree SRC DST [tar options] — copies a folder the apps are still writing into. GNU tar
+# exits 1 when a file changed while it was read (AIOStreams' db.sqlite-wal does, all the time);
+# that is no failure here: the SQLite databases are copied again through SQLite afterwards.
+# Only a real error (2) or a failing unpack counts.
+copy_tree() {
+  local src=$1 dst=$2 s; shift 2
+  tar -C "$src" "$@" --warning=no-file-changed -cf - . 2>>"$LOG" | tar -C "$dst" -xf - 2>>"$LOG" && return 0 \
+    || s=("${PIPESTATUS[@]}")
+  (( s[0] <= 1 && s[1] == 0 ))
+}
+
 # backup [quiet] — writes <backup dir>/ninjarr-<date>.tar.gz and prints its path
 backup() {
-  local quiet=${1:-} dir stage out db rel dispatcharr_was_up=0 n x
+  local quiet=${1:-} dir stage out db rel dispatcharr_was_up=0 n x keep=${BACKUP_KEEP:-7}
   [[ -d "$NINJARR_DATA/appdata" ]] || die "nothing to back up: $NINJARR_DATA/appdata doesn't exist"
   command -v sqlite3 >/dev/null || die "sqlite3 is missing — run ./bootstrap.sh once, it installs it"
   dir=$(backup_dir); mkdir -p "$dir"; chmod 700 "$dir"
-  rm -rf "$dir"/.staging.*   # leftovers of an interrupted run
+  rm -rf "$dir"/.staging.* "$dir"/ninjarr-*.tar.gz.part   # leftovers of an interrupted run
+  # Make room first: the oldest go before the new one is written, not after. Deleting only
+  # afterwards needs space for one backup more than BACKUP_KEEP (plus the staging copy), so on
+  # a disk sized for BACKUP_KEEP the next backup failed for lack of space — and as it stopped
+  # there, the old ones were never deleted and every night failed the same way.
+  backup_prune "$dir" "$((keep - 1))"
   stage=$(mktemp -d "$dir/.staging.XXXX")
   mkdir -p "$stage/appdata" "$stage/library"
 
@@ -28,13 +53,15 @@ backup() {
     docker stop dispatcharr >/dev/null && dispatcharr_was_up=1
   fi
   local -a ex=(); for x in "${BACKUP_EXCLUDES[@]}"; do ex+=(--exclude="$x"); done
-  if ! tar -C "$NINJARR_DATA/appdata" "${ex[@]}" -cf - . 2>>"$LOG" | tar -C "$stage/appdata" -xf - 2>>"$LOG"; then
+  if ! copy_tree "$NINJARR_DATA/appdata" "$stage/appdata" "${ex[@]}"; then
     (( dispatcharr_was_up )) && docker start dispatcharr >/dev/null
     die "copying the app data failed — see $LOG"
   fi
   (( dispatcharr_was_up )) && docker start dispatcharr >/dev/null
   # the library is only symlinks into AIOStreams — tiny, but the arrs need every one of them
-  [[ -d "$NINJARR_DATA/library" ]] && { tar -C "$NINJARR_DATA/library" -cf - . | tar -C "$stage/library" -xf -; } 2>>"$LOG"
+  if [[ -d "$NINJARR_DATA/library" ]] && ! copy_tree "$NINJARR_DATA/library" "$stage/library"; then
+    rm -rf "$stage"; die "copying the library failed — see $LOG"
+  fi
 
   # SQLite databases are copied again through SQLite itself, so a database that was being written
   # during the copy above still ends up consistent
@@ -64,11 +91,7 @@ backup() {
   rm -rf "$stage"
   chmod 600 "$out"
 
-  # keep the newest BACKUP_KEEP
-  local keep=${BACKUP_KEEP:-7} old
-  # names are ninjarr-<date>-<time>.tar.gz (nothing ls could mangle), newest first
-  # shellcheck disable=SC2012
-  while IFS= read -r old; do rm -f "$old"; done < <(ls -1t "$dir"/ninjarr-*.tar.gz 2>/dev/null | tail -n +"$((keep + 1))")
+  backup_prune "$dir" "$keep"   # keep the newest BACKUP_KEEP
 
   [[ "$quiet" == quiet ]] || ok "backup $(basename "$out") ($(du -h "$out" | cut -f1), $n databases) in $dir"
   mkdir -p "$ROOT/.state"; printf '%s' "$out" >"$ROOT/.state/last-backup"
