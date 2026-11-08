@@ -114,6 +114,21 @@ drive_decrypt() {  # drive_decrypt IN OUT [NAME to show]
   ok "decrypted $label"
 }
 
+# drive_token TEXT — the JSON sign-in out of what `rclone authorize` prints: the JSON itself, or
+# (when it was given the config blob, as ninjarr does) base64 of {"token":"<that JSON>"}, unpadded
+drive_token() {
+  local t pad
+  t=$(tr -d '[:space:]' <<<"$1")
+  if [[ "$t" != \{* ]]; then
+    [[ "$t" =~ ^[A-Za-z0-9+/]+=*$ ]] || return 1
+    t=${t%%=*}; pad=$(( (4 - ${#t} % 4) % 4 ))
+    (( pad == 3 )) && return 1
+    t=$(printf '%s%s' "$t" "$(printf '%*s' "$pad" '' | tr ' ' '=')" | base64 -d 2>/dev/null | jq -r '.token // empty' 2>/dev/null) || return 1
+  fi
+  jq -e '.access_token and .refresh_token' >/dev/null 2>&1 <<<"$t" || return 1
+  jq -c . <<<"$t"
+}
+
 # drive-setup [TOKEN] — connects Google Drive, once. Without TOKEN, rclone shows a sign-in link
 # that opens in the browser of the PC this SSH session comes from, through the tunnel below.
 # TOKEN is the JSON `rclone authorize "drive" "eyJzY29wZSI6ImRyaXZlLmZpbGUifQ"` prints on a PC.
@@ -126,9 +141,9 @@ drive_setup() {
   mkdir -p "$(dirname "$conf")"; chmod 700 "$(dirname "$conf")"
   tmp=$(mktemp "$conf.XXXX")
   if [[ -n "$token" ]]; then
-    jq -e '.access_token and .refresh_token' >/dev/null 2>&1 <<<"$token" \
-      || die "that's not the token rclone authorize prints (JSON with access_token and refresh_token)"
-    printf '[%s]\ntype = drive\nscope = drive.file\ntoken = %s\n' "$DRIVE_REMOTE" "$(jq -c . <<<"$token")" >"$tmp"
+    token=$(drive_token "$token") \
+      || { rm -f "$tmp"; die "that's not what rclone authorize prints (the text between ---> and <---End paste)"; }
+    printf '[%s]\ntype = drive\nscope = drive.file\ntoken = %s\n' "$DRIVE_REMOTE" "$token" >"$tmp"
   else
     printf '\n   Sign-in goes through your PC'"'"'s browser. Connect to this VM like this first:\n\n'
     printf '     %sssh -L 53682:127.0.0.1:53682 %s@%s%s\n\n' "$B" "${SUDO_USER:-you}" "$(host_ip)" "$X"
@@ -227,7 +242,9 @@ drive_finish() {
   curl -s -o /dev/null --max-time 30 -G "http://127.0.0.1:53682/" --data-urlencode "state=$state" --data-urlencode "code=$code" \
     || { drive_auth_stop; die "couldn't hand the sign-in to rclone — press Connect again"; }
   for _ in {1..60}; do drive_auth_running || break; sleep 0.5; done
-  token=$(grep -m 1 '^{.*"access_token"' "$d/authorize.out" 2>/dev/null) || true
+  # what rclone prints between "--->" and "<---End paste"
+  token=$(sed -n '/--->$/,/^<---End paste/{/--->$/d;/^<---End paste/d;p}' "$d/authorize.out" 2>/dev/null) || true
+  token=$(drive_token "$token") || token=''
   if [[ -z "$token" ]]; then
     grep -i 'error' "$d/authorize.out" 2>/dev/null | tail -n 2 | tee -a "$LOG" || true
     drive_auth_stop; : >"$d/authorize.out"
