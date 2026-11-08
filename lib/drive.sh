@@ -112,7 +112,17 @@ drive_upload() {
   # a big backup takes minutes: the spinner shows it's still going
   local size; size=$(du -h "$file" 2>/dev/null | cut -f1) || true
   [[ "${ANIMATE:-0}" == 1 ]] || info "uploading $name (${size:-?}) to Google Drive — this can take a few minutes"
-  spin "uploading $name (${size:-?}) to Google Drive" drive_send "$file" "$remote/$name" || rc=1
+  # Google limits how often all rclone users together may call Drive ("Quota exceeded …
+  # rateLimitExceeded"); that clears within minutes, so a failed upload is tried again
+  local wait attempt=1
+  for wait in 60 180 600 ""; do
+    rc=0
+    SOFT=1 spin "uploading $name (${size:-?}) to Google Drive" drive_send "$file" "$remote/$name" || rc=1
+    (( rc == 0 )) && break
+    [[ -n "$wait" ]] || break
+    info "Google Drive is busy — trying again in $((wait / 60)) min (try $((attempt + 1)) of 4)"
+    sleep "$wait"; attempt=$((attempt + 1))
+  done
   (( rc == 0 )) && drive_list | grep -qx "$name" \
     || { drive_fail "$name" "uploading $name failed — the backup itself is fine, on this machine. Details: ${LOG:-the log}"; return 1; }
   drive_prune "$keep"

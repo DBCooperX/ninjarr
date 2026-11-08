@@ -90,7 +90,7 @@ One username and password works everywhere. The rest (Sonarr, Radarr, Prowlarr, 
 | **Stats** | Watch history and charts: who watched what, when, on which device and how it played. |
 | **Library** | How well the library plays: missing releases, language, 4K/HDR, upgrades — each with a button that fixes it. |
 | **Settings** | Every setup answer, editable and tested. *Save and apply* re-wires the apps. |
-| **System** | Updates, backups and the VM's own security updates. |
+| **System** | Updates, backups, Google Drive and the VM's own security updates. |
 
 <p align="center">
 <img src="docs/watching.png" alt="Dojo's watch stats: totals, top series, people and the last play" width="560">
@@ -130,12 +130,16 @@ When a device can't play a file directly, Emby converts it. On the CPU that can 
 
 ## Updates and backups
 
-- **Updates:** Dojo → System shows when a new ninjarr is out and what's in it. *Update* backs up first, then moves every app to the versions tested for that release.
+### Updates
+
+- **ninjarr:** Dojo → System shows when a new version is out and what's in it. *Update* backs up first, then moves every app to the versions tested for that release.
 - **Tested app versions:** every night a bot builds the whole stack with the newest app images and runs every check, including a simulated AIOStreams outage that must not cost the library anything. What passes becomes a new ninjarr release by itself.
 - **Can't wait?** System lists newer app versions. *Try it* upgrades one app and checks everything; if anything fails it rolls back by itself, and *Go back* undoes it later.
-- **Backups** run nightly and keep the last 7: settings, every app's data and the watch history, usually a few MB. Download one now and then, set `BACKUP_DIR` to a network share, or copy each one to Google Drive (below).
-- **Google Drive (optional):** Dojo → System → Google Drive → *Connect* links your Drive once (or `sudo ./bootstrap.sh drive-setup` in the terminal). From then on every backup is encrypted with a passphrase and copied into a `ninjarr-backups` folder there, keeping as many as on the VM (`DRIVE_KEEP` to change that). ninjarr only gets access to the files it creates, nothing else on your Drive. Keep the passphrase (Dojo → System → *Passphrase*) in your password manager: without it the copies can't be opened. Dojo → System lists the copies on Drive with a *Restore* button each, and sends a notification when a copy fails.
 - **The VM** installs security updates nightly and offers *Restart now* when one needs it.
+
+### Backups
+
+Every night ninjarr backs up the settings, every app's data and the watch history (usually a few MB) and keeps the last 7. Download one now and then, set `BACKUP_DIR` to a network share, or let ninjarr copy them to Google Drive.
 
 To restore, on a fresh VM or the same one (nothing is downloaded again):
 
@@ -144,10 +148,21 @@ git clone https://github.com/DBCooperX/ninjarr.git /opt/ninjarr-src && cd /opt/n
 ./bootstrap.sh restore /path/to/ninjarr-20261022-043012.tar.gz
 ```
 
-From Google Drive on a fresh VM: run `./bootstrap.sh` as for a new install, and on Dojo's setup page choose *Restore a backup from Google Drive*. Connect Drive, pick a backup and type its passphrase; the whole stack comes back with the same login. In the terminal instead, download the file from the `ninjarr-backups` folder and run `./bootstrap.sh restore ninjarr-20261022-043012.tar.gz.gpg`, which asks for the passphrase.
+### Google Drive (optional)
+
+Dojo → System → Google Drive → *Connect* links your Drive once. From then on:
+
+- Every backup is **encrypted** with a passphrase and copied into a `ninjarr-backups` folder on your Drive. ninjarr only sees the files it creates there, nothing else.
+- Drive **keeps the same backups as the VM**: as many (`DRIVE_KEEP` to change that), and deleting one in Dojo deletes its copy too.
+- When Google is busy and turns an upload away, ninjarr **tries again** after 1, 3 and 10 minutes. Dojo notifies you if it still fails.
+- Dojo → System lists the copies on Drive, each with a *Restore* button.
+
+**Keep the passphrase** (Dojo → System → *Passphrase*) in your password manager. Without it the copies can't be opened.
+
+**On a fresh VM:** run `./bootstrap.sh` as for a new install and choose *Restore a backup from Google Drive* on Dojo's setup page. Connect Drive, pick a backup and type its passphrase; the whole stack comes back with the same login.
 
 <details>
-<summary>Connecting Google Drive from the terminal</summary>
+<summary>Google Drive from the terminal</summary>
 
 In Dojo, *Connect* shows Google's sign-in; afterwards the browser ends on a `127.0.0.1` page that doesn't load, and you paste its address back into Dojo. In the terminal, the sign-in opens on your PC through an SSH tunnel instead:
 
@@ -156,7 +171,9 @@ ssh -L 53682:127.0.0.1:53682 you@ninjarr.lan     # from your PC
 cd /opt/ninjarr-src && sudo ./bootstrap.sh drive-setup
 ```
 
-Open the `http://127.0.0.1:53682/auth…` link it shows, sign in and allow access. No SSH? Install rclone on a PC, run `rclone authorize "drive" "eyJzY29wZSI6ImRyaXZlLmZpbGUifQ"` and pass what it prints: `sudo ./bootstrap.sh drive-setup '<that>'`. To stop the copies, set `DRIVE_BACKUP='no'` in ninjarr.env.
+Open the `http://127.0.0.1:53682/auth…` link it shows, sign in and allow access. No SSH? Install rclone on a PC, run `rclone authorize "drive" "eyJzY29wZSI6ImRyaXZlLmZpbGUifQ"` and pass what it prints: `sudo ./bootstrap.sh drive-setup '<that>'`.
+
+To restore a copy by hand, download it from the `ninjarr-backups` folder and run `./bootstrap.sh restore ninjarr-20261022-043012.tar.gz.gpg`; it asks for the passphrase. To stop the copies, press *Disconnect* in Dojo or set `DRIVE_BACKUP='no'` in ninjarr.env.
 </details>
 
 <details>
@@ -218,9 +235,9 @@ So *German 4K* beats *German 1080p*, which beats *English 4K*. An English file i
 
 - **It depends on usenet.** When a release disappears, a replacement is found overnight. A rare title with no complete copy left can't be replaced.
 - **Settings ninjarr manages are locked** in AIOStreams' dashboard. Change them in Dojo.
-- **Every app has a memory ceiling.** An app that runs away is cut off at its ceiling instead of freezing the whole VM, and Dojo tells you which one (Home → Memory, and a notification). Raise one with e.g. `EMBY_MEM='8g'` in `ninjarr.env`. ninjarr also adds a small swap file when the VM has none.
-- **Stats → Server** shows the VM itself, apart from the streaming numbers: CPU, memory, how much of the time apps wait for memory, network and disk, each app against its ceiling, and where its memory is heading. Home warns before trouble: an app growing towards its ceiling, the VM short of memory, swap held all day, DNS lookups piling up, the disk filling.
-- **Broken file names.** Some releases carry file names in an old encoding (an umlaut that comes out as `�`), and Sonarr or Radarr then can't import them: the download sits at "Downloaded - Importing". One such file holds up the whole download. After 15 minutes ninjarr imports it by hand: it links the files into the library, under a cleaned name where needed, the app picks them up, and the stuck entry leaves the queue (the download stays, it's what plays). While anything sits in import, Home has an **Imports** card: what's stuck, when ninjarr steps in (**Fix now** skips the wait), what it did, and what to do when the cause is something else.
+- **Every app has a memory ceiling.** One that runs away is cut off at its ceiling instead of freezing the VM, and Dojo tells you which. Raise one with e.g. `EMBY_MEM='8g'` in `ninjarr.env`.
+- **Stats → Server** shows the VM itself: CPU, memory, network, disk and each app against its ceiling. Home warns before trouble, such as an app nearing its ceiling or the disk filling up.
+- **Broken file names.** Some releases have file names in an old encoding (an umlaut shows as `�`), and Sonarr or Radarr can't import them: they sit at "Downloaded - Importing". After 15 minutes ninjarr imports them itself under a cleaned name. Home's **Imports** card shows what's stuck and has **Fix now** to skip the wait.
 - **Sonarr and Radarr always ask for the login** in the browser, even at home.
 - **Coming from SABnzbd and a NAS?** There's nothing to carry over. Build fresh and re-add series in batches.
 - **Security:** Dojo has no Docker access and can't change ninjarr's files. It asks the host to run a fixed list of jobs, and the host checks every setting it hands over. `ninjarr.env` is read as plain settings, never run.
