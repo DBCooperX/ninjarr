@@ -21,7 +21,7 @@
 #   ./bootstrap.sh down         stop the stack (data stays)
 set -Eeuo pipefail
 
-NINJARR_VERSION="1.2.1"
+NINJARR_VERSION="1.2.2"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${NINJARR_ENV:-$ROOT/ninjarr.env}"
 LOG="$ROOT/.ninjarr.log"
@@ -266,7 +266,7 @@ main() {
       env_load || die "no ninjarr.env"
       [[ "${2:-}" =~ ^ninjarr-[0-9]{8}-[0-9]{6}\.tar\.gz$ ]] || die "not a ninjarr backup name: ${2:-}"
       [[ -f "$(backup_dir)/$2" ]] || die "no such backup: $2"
-      rm -f "$(backup_dir)/$2"; ok "deleted $2"; return 0 ;;
+      rm -f "$(backup_dir)/$2"; ok "deleted $2"; drive_forget "$2"; return 0 ;;
     host-status) # the VM's status for Dojo: updates, memory, CPU, disk (timer, every 5 minutes);
       # then imports stuck on broken file names (lib/namefix.sh)
       LOG=/dev/null; env_load || true; gpu_followup; host_status; namefix || true; return 0 ;;

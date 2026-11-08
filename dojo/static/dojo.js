@@ -1733,7 +1733,7 @@ async function pageSystem() {
   });
   driveWire(dr);
   el.querySelectorAll("[data-delete]").forEach(x => x.onclick = async () => {
-    if (!(await ask({ title: `Delete the backup from ${x.dataset.when}?`, ok: "Delete", body: "It can't be brought back. Your other backups and the running stack stay as they are." }))) return;
+    if (!(await ask({ title: `Delete the backup from ${x.dataset.when}?`, ok: "Delete", body: `It can't be brought back${dr && dr.count ? ", and its copy on Google Drive goes too" : ""}. Your other backups and the running stack stay as they are.` }))) return;
     x.disabled = true;
     const ok = await quietJob(`delete-backup ${x.dataset.delete}`);
     toast(ok ? "Backup deleted" : "Couldn't delete that backup.", ok ? "ok" : "fail");

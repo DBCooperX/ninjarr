@@ -40,7 +40,7 @@ drive_gpg() {
 drive_status() {
   local f="$ROOT/.state/drive.json" prev='{}' files='[]'
   [[ -s "$f" ]] && prev=$(cat "$f" 2>/dev/null) && jq -e . >/dev/null 2>&1 <<<"$prev" || prev='{}'
-  [[ "$1" == ok ]] && files=$(drive_list | jq -Rsc 'split("\n") | map(select(length > 0))')
+  [[ "$1" == ok ]] && files=$({ drive_list || true; } | jq -Rsc 'split("\n") | map(select(length > 0))')
   mkdir -p "$ROOT/.state"
   jq -n --argjson prev "$prev" --arg st "$1" --arg name "$2" --arg msg "$3" --argjson files "$files" \
         --argjson at "$(date +%s)" --arg folder "$(drive_folder)" --argjson keep "$(drive_keep)" '
@@ -66,6 +66,33 @@ drive_prune() {
   done < <(drive_list | tail -n +"$((n + 1))")
 }
 
+# drive_send FILE REMOTE/NAME — one backup up to Drive; encrypted when NAME ends in .gpg,
+# streamed on the way out (no second copy on this disk)
+drive_send() {
+  if [[ "$2" == *.gpg ]]; then
+    GPG_PASS=$DRIVE_PASSPHRASE drive_gpg --symmetric --cipher-algo AES256 --compress-algo none -o - "$1" \
+      | drive_rclone rcat "$2"
+  else
+    drive_rclone copyto "$1" "$2"
+  fi
+}
+
+# drive_forget NAME.tar.gz — the copy of a backup deleted in Dojo goes from Drive too, so both
+# hold the same backups
+drive_forget() {
+  local name=$1 f="$ROOT/.state/drive.json" files n
+  drive_on && [[ -s "$(drive_conf)" ]] && command -v rclone >/dev/null || return 0
+  for n in "$name" "$name.gpg"; do
+    drive_list | grep -qxF "$n" || continue
+    if drive_rclone deletefile --drive-use-trash=false "$DRIVE_REMOTE:$(drive_folder)/$n"; then ok "deleted $n on Google Drive too"
+    else warn "couldn't delete $n on Google Drive — it goes when newer backups push it out"; fi
+  done
+  # Dojo's list of what's there
+  [[ -s "$f" ]] || return 0
+  files=$({ drive_list || true; } | jq -Rsc 'split("\n") | map(select(length > 0))')
+  jq --argjson files "$files" '.files = $files' "$f" >"$f.tmp" 2>/dev/null && mv "$f.tmp" "$f" || rm -f "$f.tmp"
+}
+
 drive_fail() { drive_status fail "$1" "$2"; warn "Google Drive: $2"; }
 
 # drive_upload FILE — the copy of one backup on Drive; 1 when it didn't work (the reason is noted)
@@ -81,12 +108,11 @@ drive_upload() {
     command -v gpg >/dev/null || { drive_fail "$name" "gpg is missing — run sudo ./bootstrap.sh drive-setup"; return 1; }
     [[ -n "${DRIVE_PASSPHRASE:-}" ]] || { drive_fail "$name" "DRIVE_PASSPHRASE is empty in ninjarr.env — run sudo ./bootstrap.sh drive-setup"; return 1; }
     name+=.gpg
-    # streamed: encrypted on the way out, no second copy on this disk
-    GPG_PASS=$DRIVE_PASSPHRASE drive_gpg --symmetric --cipher-algo AES256 --compress-algo none -o - "$file" 2>>"${LOG:-/dev/null}" \
-      | drive_rclone rcat "$remote/$name" || rc=1
-  else
-    drive_rclone copyto "$file" "$remote/$name" || rc=1
   fi
+  # a big backup takes minutes: the spinner shows it's still going
+  local size; size=$(du -h "$file" 2>/dev/null | cut -f1) || true
+  [[ "${ANIMATE:-0}" == 1 ]] || info "uploading $name (${size:-?}) to Google Drive — this can take a few minutes"
+  spin "uploading $name (${size:-?}) to Google Drive" drive_send "$file" "$remote/$name" || rc=1
   (( rc == 0 )) && drive_list | grep -qx "$name" \
     || { drive_fail "$name" "uploading $name failed — the backup itself is fine, on this machine. Details: ${LOG:-the log}"; return 1; }
   drive_prune "$keep"
