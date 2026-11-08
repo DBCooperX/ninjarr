@@ -11,6 +11,8 @@
 #   ./bootstrap.sh doctor       check the whole chain; the report is safe to paste into a bug report
 #   ./bootstrap.sh backup       ninjarr.env + app data + library into one file (also runs nightly)
 #   ./bootstrap.sh restore F    rebuild from backup file F — on a fresh VM or over this install
+#                               (F.gpg, a copy from Google Drive, asks for its passphrase)
+#   ./bootstrap.sh drive-setup  also copy every backup, encrypted, to your Google Drive
 #   ./bootstrap.sh import F     one-off import of an older stack (file from migrate/export-legacy.sh)
 #   ./bootstrap.sh reboot       restart the VM, e.g. after a security update that needs it
 #   ./bootstrap.sh try-version APP VERSION   try a newer app version; rolled back if the check fails
@@ -19,7 +21,7 @@
 #   ./bootstrap.sh down         stop the stack (data stays)
 set -Eeuo pipefail
 
-NINJARR_VERSION="1.1.4"
+NINJARR_VERSION="1.2.0"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${NINJARR_ENV:-$ROOT/ninjarr.env}"
 LOG="$ROOT/.ninjarr.log"
@@ -39,6 +41,8 @@ STEP_TOTAL=6
 . "$ROOT/lib/apps.sh"
 # shellcheck source=lib/backup.sh
 . "$ROOT/lib/backup.sh"
+# shellcheck source=lib/drive.sh
+. "$ROOT/lib/drive.sh"
 # shellcheck source=lib/doctor.sh
 . "$ROOT/lib/doctor.sh"
 # shellcheck source=lib/jobs.sh
@@ -245,7 +249,19 @@ main() {
     backup) # also run by the nightly timer, so it keeps its own log and no banner
       LOG="$ROOT/.ninjarr-backup.log"; : >"$LOG"; chmod 600 "$LOG"
       env_load || die "no ninjarr.env here — nothing to back up"
-      mkdir -p "$ROOT/.state"; backup; return 0 ;;
+      mkdir -p "$ROOT/.state"; backup
+      # the off-site copy (DRIVE_BACKUP='yes'); a failed upload leaves the backup here as it is
+      drive_upload "$(cat "$ROOT/.state/last-backup")" || true
+      return 0 ;;
+    drive-setup) # drive-setup [TOKEN] — connect Google Drive for off-site copies of the backups
+      LOG="$ROOT/.ninjarr-backup.log"; touch "$LOG"; chmod 600 "$LOG"
+      [[ $EUID -eq 0 ]] || die "run it with sudo"
+      env_load || die "no ninjarr.env here — set up ninjarr first"
+      STEP_TOTAL=1; drive_setup "${2:-}"; return 0 ;;
+    drive-connect|drive-finish|drive-off) # the same from Dojo → System (lib/drive.sh)
+      LOG="$ROOT/.ninjarr-backup.log"; touch "$LOG"; chmod 600 "$LOG"
+      env_load || die "no ninjarr.env"
+      STEP_TOTAL=1; "drive_${cmd#drive-}"; return 0 ;;
     delete-backup) # delete-backup ninjarr-<date>.tar.gz — one of ninjarr's own backups, by name
       env_load || die "no ninjarr.env"
       [[ "${2:-}" =~ ^ninjarr-[0-9]{8}-[0-9]{6}\.tar\.gz$ ]] || die "not a ninjarr backup name: ${2:-}"
@@ -313,6 +329,13 @@ main() {
       preflight
       # just a name (Dojo's restore button): one of ninjarr's own backups, from the backup folder
       if [[ "$2" != */* ]]; then env_load || true; restore "$(backup_dir)/$2"; else restore "$2"; fi
+      build_stack
+      summary ;;
+    restore-drive) # restore-drive NAME — a backup from Google Drive (Dojo's restore button there)
+      [[ -n "${2:-}" ]] || die "which one? ./bootstrap.sh restore-drive ninjarr-<date>.tar.gz.gpg"
+      preflight
+      env_load || die "no ninjarr.env — on a fresh VM, download the file and use ./bootstrap.sh restore FILE"
+      drive_fetch "$2"; restore "$DRIVE_FETCHED"
       build_stack
       summary ;;
     import)

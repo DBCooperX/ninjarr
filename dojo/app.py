@@ -24,7 +24,7 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import requests
 import history
@@ -221,15 +221,15 @@ def api_apps():
     # in the order of the chain on Home: request → search → grab → stream → play
     rows = [
         ("Dojo", 1337, "this page", "dojo" if env.get("DOJO_HTTPS") == "yes" else None),
-        ("Seerr", 5055, "request", "request"),
-        ("Prowlarr", 9696, "search", None),
-        ("Sonarr", 8989, "grab shows", None),
-        ("Radarr", 7878, "grab movies", None),
-        ("AIOStreams", 3000, "stream", "stream"),
+        ("Seerr", 5055, "ask for movies and shows", "request"),
+        ("Prowlarr", 9696, "searches your indexers", None),
+        ("Sonarr", 8989, "finds and fetches shows", None),
+        ("Radarr", 7878, "finds and fetches movies", None),
+        ("AIOStreams", 3000, "streams files from usenet", "stream"),
     ]
     if iptv:
-        rows.append(("Dispatcharr", 9191, "live TV", None))
-    rows += [("Emby", 8096, "watch", "emby"), ("Bazarr", 6767, "subtitles", None)]
+        rows.append(("Dispatcharr", 9191, "live TV channels", None))
+    rows += [("Emby", 8096, "watch everything", "emby"), ("Bazarr", 6767, "fetches subtitles", None)]
     apps = [{"name": n, "port": p, "job": j, "icon": f"/api/appicon/{n.lower()}" if n != "Dojo" else "/static/icon-192.png",
              "remote": f"https://{sub}.{domain}" if sub and domain else None, "home_only": sub == "dojo"}
             for n, p, j, sub in rows]
@@ -304,7 +304,8 @@ def api_logout():
 
 
 # ─────────────────────────────────────────────── jobs (run on the host)
-ALLOWED_JOBS = {"apply", "wire", "update", "backup", "doctor", "reboot", "settings", "fix-imports"}
+ALLOWED_JOBS = {"apply", "wire", "update", "backup", "doctor", "reboot", "settings", "fix-imports",
+                "drive-connect", "drive-finish", "drive-off"}
 
 
 def queue_job(line):
@@ -312,6 +313,7 @@ def queue_job(line):
     if not cmd or not (cmd[0] in ALLOWED_JOBS and len(cmd) == 1
                        or cmd[0] == "restart" and len(cmd) == 2 and cmd[1] in SERVICES
                        or cmd[0] in ("restore", "delete-backup") and len(cmd) == 2 and BACKUP_NAME.match(cmd[1])
+                       or cmd[0] == "restore-drive" and len(cmd) == 2 and DRIVE_NAME.match(cmd[1])
                        or cmd[0] == "try-version" and len(cmd) == 3 and cmd[1] in UPSTREAM and re.fullmatch(r"[A-Za-z0-9._-]{1,64}", cmd[2])
                        or cmd[0] == "revert-version" and len(cmd) == 2 and cmd[1] in UPSTREAM):
         raise ValueError("not a job Dojo can ask for")
@@ -510,6 +512,7 @@ def api_dispatcharr_connect():
     env_write({"DISPATCHARR_API_KEY": key})
     queue_job("settings")       # the host takes the key over now, no rebuild needed
     return jsonify(ok=True, message="Connected. Stats → Watching now shows what's playing through Dispatcharr.")
+
 
 
 @app.post("/api/test/<kind>")
@@ -885,7 +888,7 @@ def memory_check(hs):
     stopped and restarted for running out of memory (its ceiling, compose/stack.yml) this week."""
     m = (hs or {}).get("memory")
     if not m:
-        return check("Host", "Memory", "ok", "")
+        return check("Server", "Memory", "ok", "")
     used = m["total_mb"] - m["available_mb"]
     top = ", ".join(f"{sysstats.nice(a['name'])} {gb(a['mb'])}" for a in sorted(m.get("apps") or [], key=lambda a: -a["mb"])[:3])
     oom = [o for o in m.get("oom") or [] if o.get("app") in SERVICES and time.time() - o["at"] < 7 * 86400]
@@ -895,12 +898,12 @@ def memory_check(hs):
         lim = next((a["limit_mb"] for a in m.get("apps") or [] if a["name"] == last["app"]), None)
         what = f"hit its memory ceiling ({gb(lim)})" if last.get("ceiling") and lim else "ran out of memory"
         more = f" ({len(oom)} times this week)" if len(oom) > 1 else ""
-        return check("Host", "Memory", "warn", f"{name} {what} on {datetime.fromtimestamp(last['at']).strftime('%a %d %b, %H:%M')}{more} "
+        return check("Server", "Memory", "warn", f"{name} {what} on {datetime.fromtimestamp(last['at']).strftime('%a %d %b, %H:%M')}{more} "
                      f"and was cut off there; the rest of the VM kept running. If it keeps happening, raise it with "
                      f"{last['app'].upper()}_MEM in ninjarr.env.")
     if m["available_mb"] < 0.1 * m["total_mb"]:
-        return check("Host", "Memory", "warn", f"almost full: {gb(used)} of {gb(m['total_mb'])} in use · most: {top}")
-    return check("Host", "Memory", "ok", f"{gb(used)} of {gb(m['total_mb'])} in use · most: {top}")
+        return check("Server", "Memory", "warn", f"almost full: {gb(used)} of {gb(m['total_mb'])} in use · most: {top}")
+    return check("Server", "Memory", "ok", f"{gb(used)} of {gb(m['total_mb'])} in use · most: {top}")
 
 
 def health_checks(env):
@@ -929,7 +932,7 @@ def health_checks(env):
                          f"version {ver}" if ver else ("" if js is not None else "not answering"),
                          None if js is not None else restart(name)))
     out.append(check("Apps", "AIOStreams", "ok" if up["aiostreams"] else "fail",
-                     "download client API answers" if up["aiostreams"] else "not answering",
+                     "answers Sonarr and Radarr" if up["aiostreams"] else "not answering",
                      None if up["aiostreams"] else restart("aiostreams")))
 
     def arr_checks(name):
@@ -939,11 +942,11 @@ def health_checks(env):
         fs = get_json(name, "/api/v3/filesystem?path=/mnt/aiostreams/usenet/completed/&allowFoldersWithoutTrailingSlashes=true", env)
         mounted = isinstance(fs, dict) and "directories" in fs
         out.append(check("Streaming chain", f"{label} sees the AIOStreams library", "ok" if mounted else "fail",
-                         "" if mounted else "imports will fail until the mount is back", None if mounted else restart("aiostreams")))
+                         "" if mounted else "new downloads can't reach the library until it's back", None if mounted else restart("aiostreams")))
         clients = get_json(name, "/api/v3/downloadclient", env, []) or []
         client = next((c for c in clients if c.get("name") == "AIOStreams"), None)
         if not client:
-            out.append(check("Streaming chain", f"{label} → AIOStreams", "fail", "download client missing", rewire))
+            out.append(check("Streaming chain", f"{label} → AIOStreams", "fail", f"{label} isn't set up to download through AIOStreams", rewire))
         else:
             try:
                 r = call(name, "/api/v3/downloadclient/test", env, "POST", json=client, timeout=20)
@@ -951,11 +954,11 @@ def health_checks(env):
             except requests.RequestException:
                 good = False
             out.append(check("Streaming chain", f"{label} → AIOStreams", "ok" if good else "fail",
-                             "connection test passed" if good else "connection test failed", None if good else restart("aiostreams")))
+                             f"{label} can download through AIOStreams" if good else f"{label} can't reach AIOStreams to download", None if good else restart("aiostreams")))
         roots = get_json(name, "/api/v3/rootfolder", env, []) or []
         good = bool(roots) and all(r.get("accessible") for r in roots)
         out.append(check("Streaming chain", f"{label} library folder", "ok" if good else "fail",
-                         ", ".join(r.get("path", "") for r in roots) if good else "missing or not accessible", None if good else rewire))
+                         ", ".join(r.get("path", "") for r in roots) if good else "the folder is missing or can't be opened", None if good else rewire))
         return out, [h.get("message", "") for h in get_json(name, "/api/v3/health", env, []) or []]
 
     app_warnings = {}
@@ -977,12 +980,12 @@ def health_checks(env):
         for s in st:
             if s.get("disabledTill"):
                 out.append(check("Search", f"Indexer {names.get(s.get('indexerId'), '?')}", "warn",
-                                 f"paused after errors until {s['disabledTill'][:16].replace('T', ' ')}"))
+                                 f"Prowlarr paused it after errors, until {s['disabledTill'][:16].replace('T', ' ')}"))
 
     # what Sonarr/Radarr report themselves: one line per app
     for label, msgs in app_warnings.items():
         if msgs:
-            out.append(check("Warnings", f"{label} says", "warn", msgs[0] + (f" (and {len(msgs) - 1} more)" if len(msgs) > 1 else ""),
+            out.append(check("Warnings", f"{label} reports", "warn", msgs[0] + (f" (and {len(msgs) - 1} more)" if len(msgs) > 1 else ""),
                              {"open": {"Sonarr": 8989, "Radarr": 7878}[label], "path": "/system/status", "label": f"Open {label}"}))
 
     if up["emby"]:
@@ -1006,7 +1009,7 @@ def health_checks(env):
                              None if n else {"open": 9191, "label": "Open Dispatcharr"}))
             tuners = (get_json("emby", "/emby/System/Configuration/livetv", env, {}) or {}).get("TunerHosts") or []
             tuner = any("dispatcharr" in (t.get("Url") or "") for t in tuners)
-            out.append(check("Live TV", "Emby's tuner", "ok" if tuner else "fail", "Dispatcharr" if tuner else "Dispatcharr isn't set up as Emby's tuner",
+            out.append(check("Live TV", "Emby's tuner", "ok" if tuner else "fail", "Emby gets its channels from Dispatcharr" if tuner else "Emby isn't set up to get channels from Dispatcharr",
                              None if tuner else rewire))
             if not env.get("DISPATCHARR_API_KEY"):
                 out.append(check("Live TV", "Live TV in Dojo", "warn",
@@ -1017,31 +1020,31 @@ def health_checks(env):
 
     hs = host_status()
     if hs is None or not hs.get("auto"):
-        out.append(check("Host", "Security updates", "warn", "Not automatic yet. Updating ninjarr sets them up.",
+        out.append(check("Server", "Security updates", "warn", "Not automatic yet. Updating ninjarr sets them up.",
                          {"job": "update", "label": "Update"}))
     elif hs.get("reboot_required"):
         pk = ", ".join(hs.get("reboot_packages") or [])
-        out.append(check("Host", "Security updates", "warn", "A restart finishes a security update" + (f" ({pk})" if pk else "") + ".",
+        out.append(check("Server", "Security updates", "warn", "A restart finishes a security update" + (f" ({pk})" if pk else "") + ".",
                          {"job": "reboot", "label": "Restart now"}))
     else:
-        out.append(check("Host", "Security updates", "ok", "install automatically"
+        out.append(check("Server", "Security updates", "ok", "installed automatically"
                          + (f", last on {datetime.fromtimestamp(hs['last_update']).strftime('%d %b')}" if hs.get("last_update") else "")))
 
     gpu = (hs or {}).get("gpu")
     if gpu:
         name = {"intel": "Intel", "amd": "AMD"}.get(gpu, gpu)
         if not hs.get("gpu_ready"):
-            out.append(check("Host", "Hardware transcoding", "warn",
+            out.append(check("Server", "Hardware transcoding", "warn",
                              f"The {name} GPU's driver loads after a restart." if hs.get("reboot_required")
                              else f"An {name} GPU is here, but without a driver. Updating ninjarr installs it.",
                              {"job": "reboot", "label": "Restart now"} if hs.get("reboot_required") else {"job": "update", "label": "Update"}))
         elif not hs.get("emby_gpu"):
-            out.append(check("Host", "Hardware transcoding", "warn", f"The {name} GPU is ready, but Emby doesn't have it yet.",
+            out.append(check("Server", "Hardware transcoding", "warn", f"The {name} GPU is ready, but Emby doesn't have it yet.",
                              {"job": "apply", "label": "Give it to Emby"}))
         else:
             enc = get_json("emby", "/emby/System/Configuration/encoding", env, {}) if up.get("emby") else {}
             off = (enc or {}).get("HardwareAccelerationMode") == 0
-            out.append(check("Host", "Hardware transcoding", "warn" if off else "ok",
+            out.append(check("Server", "Hardware transcoding", "warn" if off else "ok",
                              f"Emby has the {name} GPU, but hardware acceleration is off in its Transcoding settings." if off
                              else f"Emby transcodes on the {name} GPU",
                              {"open": 8096, "path": "/web/index.html#!/transcoding", "label": "Open Emby"} if off else None))
@@ -1050,8 +1053,8 @@ def health_checks(env):
     du = shutil.disk_usage(DATA)
     pct = round(du.used * 100 / du.total)
     note, full_in = sysstats.disk_note(STATE)
-    out.append(check("Host", "Disk", "ok" if pct < 90 and (full_in is None or full_in > 14) else "warn",
-                     f"{pct}% used, {du.free // 2**30} GB free" + (f" · {note}" if note else ""),
+    out.append(check("Server", "Disk", "ok" if pct < 90 and (full_in is None or full_in > 14) else "warn",
+                     f"{pct}% full, {du.free // 2**30} GB free" + (f" · {note}" if note else ""),
                      {"go": "stats/system", "label": "Details"} if full_in is not None and full_in <= 14 else None))
     backups = list_backups(env)
     if not backups and backup_path(env) is None:
@@ -1064,11 +1067,19 @@ def health_checks(env):
         if t:
             backups = [{"mtime": t, "when": datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M")}]
     if not backups:
-        out.append(check("Host", "Backups", "warn", "none yet", {"job": "backup", "label": "Back up now"}))
+        out.append(check("Server", "Backups", "warn", "none yet", {"job": "backup", "label": "Back up now"}))
     else:
         age = (time.time() - backups[0]["mtime"]) / 86400
-        out.append(check("Host", "Backups", "ok" if age <= 2 else "warn", f"last one {backups[0]['when']}",
+        out.append(check("Server", "Backups", "ok" if age <= 2 else "warn", f"last one {backups[0]['when']}",
                          None if age <= 2 else {"job": "backup", "label": "Back up now"}))
+    dr = drive_state(env)
+    if dr is not None:
+        good = dr["ok"] is True and dr["last_ok"] and time.time() - dr["last_ok"] <= 2 * 86400
+        when_ok = datetime.fromtimestamp(dr["last_ok"]).strftime("%Y-%m-%d %H:%M") if dr["last_ok"] else None
+        detail = (f"last copy {when_ok}, {dr['count']} there" if good
+                  else (dr["message"] or "no copy yet") + (f" · last good copy {when_ok}" if when_ok else ""))
+        out.append(check("Server", "Google Drive", "ok" if good else "warn", detail,
+                         None if good else {"go": "system", "label": "Backups"}))
     return out
 
 
@@ -1272,6 +1283,7 @@ def api_activity():
 
 # ─────────────────────────────────────────────── backups and versions
 BACKUP_NAME = re.compile(r"^ninjarr-\d{8}-\d{6}\.tar\.gz$")
+DRIVE_NAME = re.compile(r"^ninjarr-\d{8}-\d{6}\.tar\.gz(\.gpg)?$")
 
 
 def backup_path(env):
@@ -1295,11 +1307,119 @@ def list_backups(env):
     return out
 
 
+def drive_json():
+    try:
+        d = json.loads((STATE / "drive.json").read_text())
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def drive_files(d):
+    """ninjarr's backups on Google Drive, newest first, as drive.json last saw them."""
+    files = sorted({f for f in d.get("files") or [] if isinstance(f, str) and DRIVE_NAME.match(f)}, reverse=True)
+    out = []
+    for f in files:
+        try:
+            out.append({"name": f, "mtime": datetime.strptime(f[8:23], "%Y%m%d-%H%M%S").timestamp()})
+        except ValueError:
+            continue
+    return out
+
+
+def drive_state(env):
+    """The copies on Google Drive (lib/drive.sh), or None when that's not set up."""
+    if env.get("DRIVE_BACKUP") != "yes":
+        return None
+    d = drive_json()
+    out = drive_files(d)
+    return {"ok": d.get("ok"), "at": d.get("at"), "message": d.get("message") or "",
+            "last_ok": d.get("last_ok"), "folder": d.get("folder") or env.get("DRIVE_FOLDER") or "ninjarr-backups",
+            "count": len(out), "keep": d.get("keep"), "encrypted": env.get("DRIVE_ENCRYPT", "yes") != "no",
+            "has_passphrase": bool(env.get("DRIVE_PASSPHRASE")), "files": out}
+
+
+def drive_auth():
+    """Google's sign-in link while drive-connect's rclone waits for it (15 minutes)."""
+    try:
+        a = json.loads((STATE / "drive" / "auth.json").read_text())
+    except (OSError, ValueError):
+        return None
+    if not str(a.get("url", "")).startswith("https://accounts.google.com/") or time.time() - (a.get("at") or 0) > 14 * 60:
+        return None
+    return {"url": a["url"], "until": a["at"] + 15 * 60}
+
+
+@app.post("/api/drive/code")
+def api_drive_code():
+    """The address the browser landed on after Google's sign-in: its code goes to the host."""
+    raw = str((request.get_json(silent=True) or {}).get("url", "")).strip()
+    try:
+        a = json.loads((STATE / "drive" / "auth.json").read_text())
+    except (OSError, ValueError):
+        return jsonify(ok=False, message="The sign-in ran out. Press Connect again."), 409
+    q = parse_qs(urlsplit(raw).query) if "?" in raw else {}
+    code, state = (q.get("code") or [""])[0], (q.get("state") or [""])[0]
+    if q.get("error"):
+        return jsonify(ok=False, message="Google says access wasn't allowed. Press Connect and allow it."), 400
+    if not code or not re.fullmatch(r"[A-Za-z0-9/_.-]{10,512}", code):
+        return jsonify(ok=False, message="That's not the address from after the sign-in. It starts with http://127.0.0.1:53682/ and has code= in it."), 400
+    if not hmac.compare_digest(state, str(a.get("state", ""))):
+        return jsonify(ok=False, message="That address is from an older sign-in. Use the newest link above."), 400
+    DOJO_STATE.mkdir(parents=True, exist_ok=True)
+    tmp = DOJO_STATE / ".drive-code"
+    tmp.write_text(code + "\n")
+    os.replace(tmp, DOJO_STATE / "drive-code")
+    try:
+        return jsonify(ok=True, id=queue_job("drive-finish"))
+    except (ValueError, RuntimeError) as e:
+        return jsonify(ok=False, message=str(e)), 409
+
+
+@app.get("/api/drive/setup")
+def api_drive_setup():
+    """First-run setup on a fresh VM: Google Drive connected only to restore a backup from."""
+    connected = (STATE / "drive" / "rclone.conf").is_file()
+    return jsonify(auth=drive_auth(), connected=connected, files=drive_files(drive_json()) if connected else [])
+
+
+@app.post("/api/drive/restore")
+def api_drive_restore():
+    """First-run setup: restore one of the backups on Drive with the passphrase typed here."""
+    if not setup_mode():
+        return jsonify(ok=False, message="This is for a new machine. Use Restore under System → Backups."), 409
+    body = request.get_json(silent=True) or {}
+    name, pw = str(body.get("name", "")), str(body.get("passphrase", ""))
+    if not DRIVE_NAME.match(name):
+        return jsonify(ok=False, message="Pick a backup."), 400
+    if name.endswith(".gpg") and not (0 < len(pw) <= 200) or "\n" in pw or "\r" in pw:
+        return jsonify(ok=False, message="Type the passphrase for the backups on Drive."), 400
+    if running_job():
+        return jsonify(ok=False, message="Another job is still running. Try again when it's done."), 409
+    DOJO_STATE.mkdir(parents=True, exist_ok=True)
+    tmp = DOJO_STATE / ".drive-pass"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(pw + "\n")
+    os.replace(tmp, DOJO_STATE / "drive-pass")
+    try:
+        return jsonify(ok=True, id=queue_job(f"restore-drive {name}"))
+    except (ValueError, RuntimeError) as e:
+        (DOJO_STATE / "drive-pass").unlink(missing_ok=True)
+        return jsonify(ok=False, message=str(e)), 409
+
+
+@app.get("/api/drive/passphrase")
+def api_drive_passphrase():
+    return jsonify(passphrase=env_read().get("DRIVE_PASSPHRASE", ""))
+
+
 @app.get("/api/backups")
 def api_backups():
     env = env_read()
     return jsonify(backups=list_backups(env), visible=backup_path(env) is not None,
-                   schedule=env.get("BACKUP_SCHEDULE", "daily"), keep=int(env.get("BACKUP_KEEP") or 7))
+                   schedule=env.get("BACKUP_SCHEDULE", "daily"), keep=int(env.get("BACKUP_KEEP") or 7),
+                   drive=drive_state(env), drive_auth=drive_auth())
 
 
 @app.get("/api/backups/<name>")
@@ -1905,6 +2025,8 @@ def api_watching_person():
     tot = sum(r["watched"] for r in rows_)
     vod = [r for r in rows_ if r["via"] != "livetv" and r["runtime"]]
     p.update(window=window, heat=[[round(m) for m in d] for d in heat],
+             totals={"plays": len(rows_), "hours": round(tot / 3600, 1), "titles": len({r["grp"] for r in rows_})},
+
              top=[{"name": g, "via": v, "art": art, "server": srv, "hours": round(w / 3600, 1)} for (g, v, art, srv), w in groups.most_common(8)],
              finished_pct=round(100 * sum(1 for r in vod if history.done(r)) / len(vod)) if vod else None,
              transcode_pct=round(100 * trans / tot) if tot else 0,
@@ -2724,6 +2846,11 @@ def watch_for_push():
                                f"The newest one is from {newest['when']}. Dojo → System → Back up now shows what's wrong.",
                                "/#system", tag="backup")
                         PUSH.mark("backup_late", newest["name"])
+                dr = drive_state(env)
+                if dr and dr["ok"] is False and dr["at"] and PUSH.seen("drive_fail") != dr["at"]:
+                    notify("backup", "Backup didn't reach Google Drive", (dr["message"] or "The upload failed.")[:180],
+                           "/#system", tag="drive")
+                    PUSH.mark("drive_fail", dr["at"])
                 hs = host_status() or {}
                 due = bool(hs.get("reboot_required"))
                 if due and not PUSH.seen("restart"):

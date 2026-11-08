@@ -3,11 +3,9 @@
 The search itself is Dojo's (dojo/upstream.py), so the bot and Dojo always agree.
 
 A LinuxServer rebuild of the very same app version (only "-lsNNN" moved: a refreshed base system,
-security fixes in its libraries) isn't worth a release of its own. Those are only printed when a
-real version change goes out anyway, on Sundays, or when VERSION_BOT_ALL=1 (a run started by hand),
-so they reach everyone within a week without an update every few days."""
-import datetime
-import os
+security fixes in its libraries) never makes a ninjarr release of its own, not on a schedule and not
+in a run started by hand. It's only printed when some app's real version changes tonight too, so it
+rides along with that release (ci/app-versions.sh drops it again if that real change fails)."""
 import re
 import sys
 from pathlib import Path
@@ -36,11 +34,10 @@ def main():
             continue
         if new:
             found.append((app, new, rebuild_only(m.group(1), new)))
-    real = [f for f in found if not f[2]]
-    weekly = os.environ.get("VERSION_BOT_ALL") == "1" or datetime.datetime.now(datetime.timezone.utc).isoweekday() == 7
+    real = any(not rebuild for _, _, rebuild in found)
     for app, new, rebuild in found:
-        if rebuild and not (real or weekly):
-            print(f"{app} {new}: only a rebuild of the same version, waits for Sunday or a real update", file=sys.stderr)
+        if rebuild and not real:
+            print(f"{app} {new}: only a rebuild of the same version, waits for a real version change", file=sys.stderr)
             continue
         print(app, new)
 

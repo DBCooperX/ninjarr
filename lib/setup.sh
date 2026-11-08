@@ -35,8 +35,9 @@ web_setup() {
   note "rather answer in the terminal? Ctrl-C, then ./bootstrap.sh --terminal"
   printf '\n'
 
-  # Work through what the page asks for until a build has gone through. If the systemd runner
-  # (left from an earlier install) takes a job first, just watch its result.
+  # Work through what the page asks for until a build, or a restore from Google Drive, has gone
+  # through. If the systemd runner (left from an earlier install) takes a job first, just watch
+  # its result.
   local start_job j st reported=""
   start_job=$(latest_job)
   while :; do
@@ -44,7 +45,7 @@ web_setup() {
       printf '\n'; run_jobs tee
     fi
     j=$(latest_job)
-    if [[ -n "$j" && "$j" != "$start_job" ]] && grep -qx apply "$ROOT/.state/jobs/$j/cmd" 2>/dev/null; then
+    if [[ -n "$j" && "$j" != "$start_job" ]] && grep -qxE 'apply|restore-drive .+' "$ROOT/.state/jobs/$j/cmd" 2>/dev/null; then
       st=$(cat "$ROOT/.state/jobs/$j/status" 2>/dev/null || true)
       if [[ "$st" == ok ]]; then rm -f "$ROOT/.state/setup-code"; return 0; fi
       if [[ "$st" == failed && "$reported" != "$j" ]]; then

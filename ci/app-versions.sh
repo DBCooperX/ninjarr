@@ -35,13 +35,24 @@ say "building with today's versions"
 if [[ -n "${NEWER_FILE:-}" ]]; then mapfile -t found <"$NEWER_FILE"
 else mapfile -t found < <(python3 ci/newer_versions.py versions.env); fi
 (( ${#found[@]} )) || { say "nothing newer"; exit 0; }
-passed=() failed=()
+# rebuild_only OLD NEW: same app version, only LinuxServer's "-lsNNN" moved (as in ci/newer_versions.py)
+rebuild_only() {
+  [[ "$1" =~ ^(.+)-ls[0-9]+$ ]] || return 1
+  local base=${BASH_REMATCH[1]}
+  [[ "$2" =~ ^(.+)-ls[0-9]+$ && "${BASH_REMATCH[1]}" == "$base" ]]
+}
+passed=() failed=() real=0
 for line in "${found[@]}"; do
   read -r app tag <<<"$line"
   say "trying $app $tag"
-  if ./bootstrap.sh try-version "$app" "$tag"; then passed+=("$app $tag"); else failed+=("$app $tag"); fi
+  if ./bootstrap.sh try-version "$app" "$tag"; then
+    passed+=("$app $tag")
+    rebuild_only "$(sed -n "s/^${app^^}_TAG='\(.*\)'.*/\1/p" versions.env)" "$tag" || real=1
+  else failed+=("$app $tag"); fi
 done
 (( ${#passed[@]} )) || { say "no newer version passed: ${failed[*]}"; exit 0; }
+# rebuilds only ride along with a real version change; on their own they're no release
+(( real )) || { say "only rebuilds of the same versions passed, they wait for a real version change: ${passed[*]}"; exit 0; }
 
 # 4. all passing versions together, from versions.env this time, checked once more
 say "all together: ${passed[*]}"
@@ -51,7 +62,7 @@ for line in "${passed[@]}"; do
   old=$(sed -n "s/^${app^^}_TAG='\(.*\)'.*/\1/p" versions.env)
   sed -i "s/^${app^^}_TAG='.*'/${app^^}_TAG='$tag'/" versions.env
   sed -i "/^${app^^}_TAG=/d" ninjarr.env
-  if [[ "$old" =~ ^(.+)-ls[0-9]+$ && "$tag" == "${BASH_REMATCH[1]}"-ls* ]]; then
+  if rebuild_only "$old" "$tag"; then
     note+="- ${app}: ${old} → ${tag} (same version, rebuilt on an updated base system)"$'\n'
   else
     note+="- ${app}: ${old} → ${tag}"$'\n'

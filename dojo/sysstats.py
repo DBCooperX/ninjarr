@@ -354,16 +354,16 @@ def checks(state, hs, check):
     wait_now = lv.get("wait_some")
     worst = max(day, key=lambda r: r["some"]) if day else None
     if wait_now is not None and wait_now >= 10:
-        out.append(check("Host", "Waiting for memory", "warn",
+        out.append(check("Server", "Waiting for memory", "warn",
                          f"Apps spent {wait_now:.0f}% of the last minute waiting for memory: the VM is short of it right now. "
-                         "Stats → System shows which app holds the most.", more))
+                         "Stats → Server shows which app holds the most.", more))
     elif worst and worst["some"] >= 25:
-        out.append(check("Host", "Waiting for memory", "warn",
+        out.append(check("Server", "Waiting for memory", "warn",
                          f"At {at(worst['t'])} apps spent {worst['some']:.0f}% of five minutes waiting for memory — the VM was short "
-                         "of it then. Stats → System shows who held what.", more))
+                         "of it then. Stats → Server shows who held what.", more))
     elif wait_now is not None or day:
         top = max([wait_now or 0] + [r["some"] for r in day])
-        out.append(check("Host", "Waiting for memory", "ok",
+        out.append(check("Server", "Waiting for memory", "ok",
                          "never in the last 24 hours" if top < 0.05 else f"at most {top:.1f}% of the time in the last 24 hours"))
 
     mem = (hs or {}).get("memory") or {}
@@ -378,27 +378,27 @@ def checks(state, hs, check):
         d = datetime.fromtimestamp(now + t["to_limit_days"] * 86400)
         gap = (d.date() - datetime.fromtimestamp(now).date()).days
         when = "within hours" if t["to_limit_days"] < 0.5 else "today" if gap == 0 else "tomorrow" if gap == 1 else d.strftime("around %A")
-        out.append(check("Host", "Memory trend", "warn",
+        out.append(check("Server", "Memory trend", "warn",
                          f"{nice(name)} has grown about {t['per_day']} MB a day for {t['days']:g} days and reaches its "
                          f"{gb(limits.get(name) or 0)} ceiling {when}. Restarting it frees the memory for now.",
                          {"job": f"restart {name}", "label": f"Restart {nice(name)}"}))
     elif growing:
-        out.append(check("Host", "Memory trend", "ok", "growing slowly: " + ", ".join(f"{nice(n)} about {t['per_day']} MB a day" for n, t in growing)))
+        out.append(check("Server", "Memory trend", "ok", "growing slowly: " + ", ".join(f"{nice(n)} about {t['per_day']} MB a day" for n, t in growing)))
     elif trends and all(t["state"] == "collecting" for t in trends.values()):
         left = max(t.get("left_h", 0) for t in trends.values())
-        out.append(check("Host", "Memory trend", "ok", f"learning how the apps use memory (another {left} hours or so)"))
+        out.append(check("Server", "Memory trend", "ok", f"learning how the apps use memory (another {left} hours or so)"))
     elif trends:
-        out.append(check("Host", "Memory trend", "ok", "no app keeps growing"))
+        out.append(check("Server", "Memory trend", "ok", "no app keeps growing"))
 
     sw_total, sw_used = lv.get("swap_mb"), lv.get("swap_used_mb")
     if sw_total:
         held = [r["swap"] for r in day]
         if sw_used > 0.25 * sw_total and len(held) >= 100 and min(held) > 0.15 * sw_total:
-            out.append(check("Host", "Swap", "warn",
+            out.append(check("Server", "Swap", "warn",
                              f"{gb(sw_used)} of {gb(sw_total)} swap has stayed in use all day: the apps need more memory than the VM "
                              "has, and run slower for it. Give the VM more memory, or lower an app's ceiling in ninjarr.env.", more))
         else:
-            out.append(check("Host", "Swap", "ok", f"{gb(sw_used)} of {gb(sw_total)} in use" if sw_used >= 1 else f"unused ({gb(sw_total)} ready)"))
+            out.append(check("Server", "Swap", "ok", f"{gb(sw_used)} of {gb(sw_total)} in use" if sw_used >= 1 else f"unused ({gb(sw_total)} ready)"))
 
     if rows:
         n24 = sum(r["piles"] for r in day)
@@ -407,11 +407,11 @@ def checks(state, hs, check):
             last = max(r["t"] for r in day if r["piles"])
             names = read_dns(state, now - 86400).most_common(1)
             asked = (f", mostly for {names[0][0]}" + (f" ({who_asks(names[0][0])})" if who_asks(names[0][0]) else "")) if names else ""
-            out.append(check("Host", "DNS", "warn",
+            out.append(check("Server", "DNS", "warn",
                              f"Docker's DNS had more lookups waiting than it can hold {'once' if n24 == 1 else f'{n24} times'} today "
                              f"(last at {at(last)}){asked}. It often comes with memory running short.", more))
         else:
-            out.append(check("Host", "DNS", "ok", "no pile-ups today" + (f" ({n7} earlier this week)" if n7 else "")))
+            out.append(check("Server", "DNS", "ok", "no pile-ups today" + (f" ({n7} earlier this week)" if n7 else "")))
     return out
 
 

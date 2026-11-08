@@ -133,7 +133,8 @@ When a device can't play a file directly, Emby converts it. On the CPU that can 
 - **Updates:** Dojo → System shows when a new ninjarr is out and what's in it. *Update* backs up first, then moves every app to the versions tested for that release.
 - **Tested app versions:** every night a bot builds the whole stack with the newest app images and runs every check, including a simulated AIOStreams outage that must not cost the library anything. What passes becomes a new ninjarr release by itself.
 - **Can't wait?** System lists newer app versions. *Try it* upgrades one app and checks everything; if anything fails it rolls back by itself, and *Go back* undoes it later.
-- **Backups** run nightly and keep the last 7: settings, every app's data and the watch history, usually a few MB. Download one now and then, or set `BACKUP_DIR` to a network share.
+- **Backups** run nightly and keep the last 7: settings, every app's data and the watch history, usually a few MB. Download one now and then, set `BACKUP_DIR` to a network share, or copy each one to Google Drive (below).
+- **Google Drive (optional):** Dojo → System → Google Drive → *Connect* links your Drive once (or `sudo ./bootstrap.sh drive-setup` in the terminal). From then on every backup is encrypted with a passphrase and copied into a `ninjarr-backups` folder there, keeping as many as on the VM (`DRIVE_KEEP` to change that). ninjarr only gets access to the files it creates, nothing else on your Drive. Keep the passphrase (Dojo → System → *Passphrase*) in your password manager: without it the copies can't be opened. Dojo → System lists the copies on Drive with a *Restore* button each, and sends a notification when a copy fails.
 - **The VM** installs security updates nightly and offers *Restart now* when one needs it.
 
 To restore, on a fresh VM or the same one (nothing is downloaded again):
@@ -142,6 +143,21 @@ To restore, on a fresh VM or the same one (nothing is downloaded again):
 git clone https://github.com/DBCooperX/ninjarr.git /opt/ninjarr-src && cd /opt/ninjarr-src
 ./bootstrap.sh restore /path/to/ninjarr-20261022-043012.tar.gz
 ```
+
+From Google Drive on a fresh VM: run `./bootstrap.sh` as for a new install, and on Dojo's setup page choose *Restore a backup from Google Drive*. Connect Drive, pick a backup and type its passphrase; the whole stack comes back with the same login. In the terminal instead, download the file from the `ninjarr-backups` folder and run `./bootstrap.sh restore ninjarr-20261022-043012.tar.gz.gpg`, which asks for the passphrase.
+
+<details>
+<summary>Connecting Google Drive from the terminal</summary>
+
+In Dojo, *Connect* shows Google's sign-in; afterwards the browser ends on a `127.0.0.1` page that doesn't load, and you paste its address back into Dojo. In the terminal, the sign-in opens on your PC through an SSH tunnel instead:
+
+```bash
+ssh -L 53682:127.0.0.1:53682 you@ninjarr.lan     # from your PC
+cd /opt/ninjarr-src && sudo ./bootstrap.sh drive-setup
+```
+
+Open the `http://127.0.0.1:53682/auth…` link it shows, sign in and allow access. No SSH? Install rclone on a PC, run `rclone authorize "drive" "eyJzY29wZSI6ImRyaXZlLmZpbGUifQ"` and pass what it prints: `sudo ./bootstrap.sh drive-setup '<that>'`. To stop the copies, set `DRIVE_BACKUP='no'` in ninjarr.env.
+</details>
 
 <details>
 <summary>Terminal commands</summary>
@@ -153,6 +169,7 @@ git clone https://github.com/DBCooperX/ninjarr.git /opt/ninjarr-src && cd /opt/n
 ./bootstrap.sh wire         # re-apply all settings
 ./bootstrap.sh backup       # back up now
 ./bootstrap.sh restore F    # restore a backup (a path, or a name from the backup folder)
+./bootstrap.sh drive-setup  # copy every backup, encrypted, to Google Drive
 ./bootstrap.sh try-version sonarr 4.0.20.3014-ls329   # try a newer app, roll back if it fails
 ./bootstrap.sh revert-version sonarr                  # undo the try
 ./bootstrap.sh import F     # bring over an existing stack (below)
@@ -202,7 +219,7 @@ So *German 4K* beats *German 1080p*, which beats *English 4K*. An English file i
 - **It depends on usenet.** When a release disappears, a replacement is found overnight. A rare title with no complete copy left can't be replaced.
 - **Settings ninjarr manages are locked** in AIOStreams' dashboard. Change them in Dojo.
 - **Every app has a memory ceiling.** An app that runs away is cut off at its ceiling instead of freezing the whole VM, and Dojo tells you which one (Home → Memory, and a notification). Raise one with e.g. `EMBY_MEM='8g'` in `ninjarr.env`. ninjarr also adds a small swap file when the VM has none.
-- **Stats → System** shows the VM itself, apart from the streaming numbers: CPU, memory, how much of the time apps wait for memory, network and disk, each app against its ceiling, and where its memory is heading. Home warns before trouble: an app growing towards its ceiling, the VM short of memory, swap held all day, DNS lookups piling up, the disk filling.
+- **Stats → Server** shows the VM itself, apart from the streaming numbers: CPU, memory, how much of the time apps wait for memory, network and disk, each app against its ceiling, and where its memory is heading. Home warns before trouble: an app growing towards its ceiling, the VM short of memory, swap held all day, DNS lookups piling up, the disk filling.
 - **Broken file names.** Some releases carry file names in an old encoding (an umlaut that comes out as `�`), and Sonarr or Radarr then can't import them: the download sits at "Downloaded - Importing". One such file holds up the whole download. After 15 minutes ninjarr imports it by hand: it links the files into the library, under a cleaned name where needed, the app picks them up, and the stuck entry leaves the queue (the download stays, it's what plays). While anything sits in import, Home has an **Imports** card: what's stuck, when ninjarr steps in (**Fix now** skips the wait), what it did, and what to do when the cause is something else.
 - **Sonarr and Radarr always ask for the login** in the browser, even at home.
 - **Coming from SABnzbd and a NAS?** There's nothing to carry over. Build fresh and re-add series in batches.

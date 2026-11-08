@@ -3,8 +3,9 @@
 # automatic rollback like Dojo's "Try it"), and releases the ones that pass as a new patch version.
 # Every ninjarr install then sees it under System → What's new. Nobody has to wait for a person.
 #
-# A LinuxServer rebuild of the same app version (only "-lsNNN" moved) waits for Sunday's run or a
-# real version change, so those don't make a release every few days (ci/newer_versions.py).
+# A LinuxServer rebuild of the same app version (only "-lsNNN" moved) never makes a release of its
+# own, not even in a run started by hand: it only rides along when another app's real version
+# changes and passes (ci/newer_versions.py, ci/app-versions.sh).
 #
 # Turn it off by disabling this workflow in the Actions tab, or set the repository variable
 # APP_VERSIONS_AUTORELEASE to "no" to only run the checks.
@@ -30,8 +31,6 @@ jobs:
 
       - name: anything newer?
         id: look
-        env:
-          VERSION_BOT_ALL: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: |
           python3 ci/newer_versions.py versions.env | tee newer.txt
           echo "found=$([ -s newer.txt ] && echo yes || echo no)" >> "$GITHUB_OUTPUT"

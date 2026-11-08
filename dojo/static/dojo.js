@@ -183,7 +183,7 @@ async function watchJobs() {
   pill.hidden = !live;
   if (live) { S.lastJob = live.id; $("#jobpilltext").textContent = jobLabel(live.cmd) + "…"; }
 }
-const jobLabel = c => ({ apply: "Applying settings", wire: "Re-applying settings", update: "Updating", backup: "Backing up", doctor: "Running the full check", "fix-imports": "Fixing stuck imports" })[c.split(" ")[0]]
+const jobLabel = c => ({ apply: "Applying settings", wire: "Re-applying settings", update: "Updating", backup: "Backing up", doctor: "Running the full check", "fix-imports": "Fixing stuck imports", "drive-finish": "Connecting Google Drive", "restore-drive": "Restoring from Google Drive" })[c.split(" ")[0]]
   || (c.startsWith("restart") ? `Restarting ${c.split(" ")[1]}` : c.startsWith("restore") ? "Restoring"
     : c.startsWith("try-version") ? `Trying ${APPNAME[c.split(" ")[1]] || c.split(" ")[1]} ${c.split(" ")[2]}`
     : c.startsWith("revert-version") ? `Going back to the previous ${APPNAME[c.split(" ")[1]] || c.split(" ")[1]}` : c);
@@ -279,8 +279,8 @@ function openJob(id, title, onDone) {
     const st = d.status || "starting";
     if (st !== "queued") waitSince = null; else waitSince = waitSince || Date.now();
     const stuck = st === "queued" && Date.now() - waitSince > 30000;
-    $("#jobstate").innerHTML = stuck ? `<span class="state-failed">The host hasn't picked this up. Its job runner isn't running: on the VM, run <code>sudo ./bootstrap.sh</code> once, then try again.</span>`
-      : `<span class="state-${esc(st)}">${{ queued: "Waiting for the host to pick it up", running: "Running", ok: "Done", failed: "Stopped with a problem. The log says where." }[st] || esc(st)}</span>`;
+    $("#jobstate").innerHTML = stuck ? `<span class="state-failed">The server hasn't started this. Its job runner isn't running: on the server, run <code>sudo ./bootstrap.sh</code> once, then try again.</span>`
+      : `<span class="state-${esc(st)}">${{ queued: "Waiting for the server to start it", running: "Running", ok: "Done", failed: "Stopped with a problem. The log says where." }[st] || esc(st)}</span>`;
     if (st === "ok" || st === "failed") {
       clearInterval(jobPoll); watchJobs(); onDone && onDone(st);
       if (!S.session.setup) { toast(`${$("#jobtitle").textContent}: ${st === "ok" ? "done" : "stopped with a problem"}`, st === "ok" ? "ok" : "fail"); if (S.page) go(S.page, "stay"); }
@@ -338,15 +338,15 @@ function appsPanel(a) {
       </div></div>`;
   return `<h2>Your apps</h2><div class="tiles">${a.apps.filter(x => x.name !== "Dojo").map(tile).join("")}</div>
     <p class="note">${a.user ? `Sign in to each as <b>${esc(a.user)}</b> with your ninjarr password. ` : ""}${a.domain
-      ? `<span class="where">${icon("house")} at home</span> · <span class="where remote">${icon("globe")} from anywhere, over HTTPS</span>`
-      : `Home network only. Add a domain in Settings to reach Emby, Seerr and AIOStreams from outside.`}</p>`;
+      ? `<span class="where">${icon("house")} address at home</span> · <span class="where remote">${icon("globe")} address from anywhere, over HTTPS</span>`
+      : `These addresses work on your home network only. Add a domain in Settings → Away from home to reach Emby, Seerr and AIOStreams from outside.`}</p>`;
 }
 // Now playing: a card per stream (poster, who, where, how far, how it plays)
 function playingCards(now) {
   return `<div class="playing">${now.map(x => {
     const art = x.art ? `style="--art:url('/api/art/${esc(x.art)}')"` : "";
     const how = x.via === "livetv" ? "live TV" : x.method;
-    return `<div class="pcard" ${art}>${poster(x.art, "poster", x.grp)}
+    return `<div class="pcard" ${art} title="${esc(howWords(how).long)}">${poster(x.art, "poster", x.grp)}
       <div class="pc-b"><a href="#stats" class="wlink pc-t" data-home-title="${esc(x.grp || "")}" data-home-via="${esc(x.via || "")}">${esc(x.title)}</a>
         <div class="pc-w">${avatar(x.user, x.user_id, "avatar sm")}${esc(x.user)}${x.paused ? `<span class="muted">&nbsp;· paused</span>` : ""}</div>
         <div class="pc-d">${esc([x.client, x.device].filter((v, i, l) => v && l.indexOf(v) === i).join(" on "))}</div>
@@ -364,7 +364,7 @@ async function pageHome() {
   el.innerHTML = `<div class="sk-stack">${sk(230)}${sk(24, "24%")}${sk(140)}${sk(24, "24%")}${sk(200)}</div>`;
   const load = async () => {
     const [d, a, h] = await Promise.all([api("/api/health").catch(() => null), api("/api/apps").catch(() => null), api("/api/home").catch(() => null)]);
-    if (!d || !d.checks) { el.innerHTML = `<div class="empty"><h3>Can't reach the checks</h3><p>Dojo couldn't run its checks just now. It tries again in 30 seconds.</p></div>`; return; }
+    if (!d || !d.checks) { el.innerHTML = `<div class="empty"><h3>Can't run the health checks</h3><p>Dojo couldn't check your apps just now. It tries again in 30 seconds.</p></div>`; return; }
     stamp();
     const by = k => d.checks.find(c => c.label === k || `${c.group}/${c.label}` === k);
     const appOf = n => ((a && a.apps) || []).find(x => x.name === n);
@@ -376,9 +376,9 @@ async function pageHome() {
     });
     const fails = d.checks.filter(c => c.status === "fail"), warns = d.checks.filter(c => c.status === "warn");
     const broken = links.find(l => l.s === "fail");
-    const verdict = fails.length ? `${broken ? broken.what : "Something"} is broken` : warns.length ? "Working, with a few things to look at" : "Everything works";
+    const verdict = fails.length ? `${broken ? `The ${broken.what.toLowerCase()} step` : "Something"} is broken` : warns.length ? "Working, with a few things to look at" : "Everything works";
     const sub = fails.length ? esc(fails[0].label + (fails[0].detail ? ": " + fails[0].detail : ""))
-      : `${d.checks.length} checks, ${warns.length ? `${warns.length} to look at` : "all passing"}`;
+      : `${d.checks.length} health checks on your apps and the VM, ${warns.length ? `${warns.length} need${warns.length === 1 ? "s" : ""} attention` : "all passing"}`;
     const groups = [...new Set(d.checks.map(c => c.group))];
     const row = c => `<div class="item ${c.status}"><span class="mark" aria-label="${c.status}"></span>
           <div><h3>${esc(c.label)}</h3>${c.detail ? `<div class="detail">${esc(c.detail)}</div>` : ""}</div>
@@ -392,21 +392,21 @@ async function pageHome() {
       <section class="hero" ${art ? `style="--art:url('/api/art/${esc(art)}?w=big')"` : ""}>
         <div class="hero-top"><div><p class="verdict ${fails.length ? "fail" : ""}">${verdict}</p><p class="hero-sub">${sub}</p>
           ${now.length ? "" : `<p class="hero-idle"><svg aria-hidden="true"><use href="#i-play"/></svg>Nobody's watching right now</p>`}</div>
-          ${wk.plays || tr.streamed_mb ? `<div class="week">${wk.plays ? `<div title="The last 7 days"><b>${hrs(wk.hours)}</b><span>watched this week</span></div><div title="The last 7 days"><b>${wk.plays}</b><span>${wk.plays === 1 ? "play" : "plays"}</span></div><div title="The last 7 days"><b>${wk.viewers}</b><span>${wk.viewers === 1 ? "person" : "people"}</span></div>` : ""}${tr.streamed_mb ? `<div title="What Emby sent to your players today, and what AIOStreams fetched from usenet for it"><b>${gbTxt(tr.streamed_mb)}</b><span>streamed today${tr.fetched_mb != null ? ` · ${gbTxt(tr.fetched_mb)} from usenet` : ""}</span></div>` : ""}</div>` : ""}</div>
+          ${wk.plays || tr.streamed_mb ? `<div class="week">${wk.plays ? `<div><b>${hrs(wk.hours)}</b><span>watched in the last 7 days</span></div><div><b>${wk.plays}</b><span>${wk.plays === 1 ? "time" : "times"} something was played</span></div><div><b>${wk.viewers}</b><span>${wk.viewers === 1 ? "person" : "people"} watched</span></div>` : ""}${tr.streamed_mb ? `<div><b>${gbTxt(tr.streamed_mb)}</b><span>sent to players today${tr.fetched_mb != null ? ` · ${gbTxt(tr.fetched_mb)} downloaded from usenet for it` : ""}</span></div>` : ""}</div>` : ""}</div>
         <div class="chain" role="list" aria-label="The streaming chain">${links.map(l => `
           <div class="link ${l.s}" role="listitem" aria-label="${l.what}: ${l.s}">${l.app
             ? `<a class="step" href="${lanUrl(l.app.port)}" target="_blank" rel="noopener" title="Open ${CHAIN_APP[l.what]}">${node(l)}<div class="what">${l.what}</div></a>`
             : `${node(l)}<div class="what">${l.what}</div>`}
             <div class="who">${l.apps.map(x => x.port ? `<a href="${lanUrl(x.port)}" target="_blank" rel="noopener" title="Open ${esc(x.n)}">${esc(x.n)}</a>` : esc(x.n)).join(" · ")}</div></div>`).join("")}</div>
       </section>
-      ${now.length ? `<div class="sec-h"><h2>Now playing</h2><a href="#stats" data-goto="stats">Details</a></div>${playingCards(now)}` : ""}
+      ${now.length ? `<div class="sec-h"><h2>Playing right now</h2><a href="#stats" data-goto="stats">Details</a></div>${playingCards(now)}` : ""}
       ${recent.length ? `<div class="sec-h"><h2>Recently added</h2><a href="${esc(lanUrl(8096))}" target="_blank" rel="noopener">Open Emby</a></div>${shelf(recent)}` : ""}
       ${stuck.length ? `<div class="sec-h"><h2>Imports</h2></div><div class="checks">${stuck.map(importRow).join("")}</div>` : ""}
       ${attention.length ? `<div class="home-grid">
-        <div><h2>Needs a look</h2><div class="checks">${attention.map(row).join("")}</div></div>
+        <div><h2>Needs your attention</h2><div class="checks">${attention.map(row).join("")}</div></div>
         <div>${appsPanel(a)}</div>
       </div>` : `<div class="apps-wide">${appsPanel(a)}</div>`}
-      <details class="more" ${S.openChecks ? "open" : ""}><summary>All ${d.checks.length} checks${attention.length ? "" : " · all passing"}</summary>
+      <details class="more" ${S.openChecks ? "open" : ""}><summary>All ${d.checks.length} health checks${attention.length ? "" : " · all passing"}</summary>
       ${groups.map(g => `<div class="group-title">${esc(g)}</div><div class="checks">${d.checks.filter(c => c.group === g).map(row).join("")}</div>`).join("")}
       </details>`;
     el.querySelectorAll("[data-job]").forEach(b => b.onclick = () => runJob(b.dataset.job));
@@ -436,18 +436,18 @@ function importRow(r) {
         + (r.fix_in_min > 0 ? `in about ${mins(r.fix_in_min)}` : "at its next check") + ".";
       fix = { job: "fix-imports", label: "Fix now" }; break;
     case "linked":
-      detail = `${what} · imported by hand (${r.linked} linked), waiting for ${App} to take ${them}. It leaves the queue by itself.`; break;
+      detail = `${what} · ninjarr put ${r.linked === 1 ? "the file" : `${r.linked} files`} in the library by hand and is waiting for ${App} to pick ${them} up. The download leaves the queue by itself.`; break;
     case "gaveup":
       st = "fail"; detail = `${what} · some files never showed up in ${App}. Use Manual Import there, or remove it from the queue with "Blocklist release" ticked.`;
       fix = open; break;
     case "names-ok":
-      if ((r.age_min || 0) < 30) { st = "ok"; detail = `${what} · importing for ${mins(r.age_min || 0)}.`; break; }
+      if ((r.age_min || 0) < 30) { st = "ok"; detail = `${what} · moving into the library for ${mins(r.age_min || 0)}.`; break; }
       detail = `${what} · stuck for ${mins(r.age_min)}. Its file names are fine, so it's something else${r.why ? `: ${r.why}` : `, ${App}'s queue says what`}.`;
       fix = open; break;
     case "fixed":
       st = "ok"; detail = `${App} · fixed ${mins(r.ago_min)} ago: ${r.files ? `${r.files} ${r.files === 1 ? "file" : "files"} imported by hand` : "it was all in already"}.`; break;
     default:
-      st = "ok"; detail = `${what} · importing${r.why ? `: ${r.why}` : "."}`;
+      st = "ok"; detail = `${what} · moving into the library${r.why ? `: ${r.why}` : "."}`;
   }
   return `<div class="item ${st}"><span class="mark" aria-label="${st}"></span>
     <div><h3>${esc(r.title)}</h3><div class="detail">${esc(detail)}</div></div>${fixButton(fix)}</div>`;
@@ -460,9 +460,10 @@ function transcodeHint(sessions) {
   const devices = [...new Set(t.map(x => x.device))].join(", ");
   if (/codec/.test(r) && t.some(x => /AV1/.test(x.source))) return `${devices} can't play AV1, so Emby converts it. New grabs avoid AV1; older AV1 files get replaced over time.`;
   if (/HDR|Dolby Vision/.test(r)) return `${devices} can't show this HDR format, so Emby converts it and colours can look washed out. A device with HDR support plays it directly.`;
-  if (/bitrate/.test(r)) return `The bitrate is above what ${devices} or the connection allows. Raise the quality limit in the Emby app's playback settings.`;
-  if (/subtitles/.test(r)) return `The subtitles are burned into the picture on ${devices}. A text subtitle (SRT) plays directly.`;
-  return `${devices} needs the file converted. Emby does that on the CPU unless the VM has a GPU and Emby Premiere.`;
+  if (/bitrate/.test(r)) return `The file needs more bandwidth than ${devices} or the connection allows, so Emby makes a smaller version. Raise the quality limit in the Emby app's playback settings.`;
+  if (/subtitles/.test(r)) return `${devices} can't show these subtitles, so Emby paints them into the picture. A text subtitle (SRT) plays without converting.`;
+  return `${devices} can't play this file as it is, so Emby converts it. Emby does that on the CPU unless the VM has a GPU and Emby Premiere.`;
+
 }
 
 // ───────────────────────── Library (requests and the library) and Stats (watching, history, timeline)
@@ -485,7 +486,7 @@ async function pageLibrary() {
   const el = $("#page");
   S.win = pref("period.library", "7d");
   if (!["24h", "7d", "30d"].includes(S.win)) S.win = "7d";
-  const head = () => `<div class="subnav"><p class="pagelead">What was asked for, what arrived, and how well the library plays.</p>${periodSeg(["24h", "7d", "30d"])}</div>`;
+  const head = () => `<div class="subnav"><p class="pagelead">What people asked for, what arrived, and whether the files in your library play well.</p>${periodSeg(["24h", "7d", "30d"])}</div>`;
   const bindHead = () => el.querySelectorAll("[data-w]").forEach(b => b.onclick = () => { setPref("period.library", b.dataset.w); pageLibrary(); });
   S.timers.forEach(clearInterval); S.timers = [];
   el.innerHTML = head() + `<div class="sk-stack">${sk(40, "50%")}${sk(140)}${sk(220)}</div>`; bindHead();
@@ -509,7 +510,7 @@ async function pageStats() {
     const period = S.stab === "watching" && (W.view === "stats" || W.view === "person");
     // streaming on the left; the VM itself apart, on its own
     return `<div class="subnav"><div class="stabs"><div class="seg" role="group" aria-label="Streaming">${tabs.map(tab).join("")}</div>
-      <div class="seg seg-sys" role="group" aria-label="The VM">${tab(["system", "System"])}</div></div>
+      <div class="seg seg-sys" role="group" aria-label="The server">${tab(["system", "Server"])}</div></div>
       ${period ? periodSeg(["24h", "7d", "30d", "90d", "all"]) : ""}
       ${S.stab === "system" ? `<div class="seg" role="group" aria-label="Period">${["24h", "7d"].map(x => `<button data-sw="${x}" aria-pressed="${x === S.swin}">${x}</button>`).join("")}</div>` : ""}</div>`;
   };
@@ -542,27 +543,28 @@ function nowPanel(n) {
   const via = x => { const nm = x.via === "dispatcharr" ? "Dispatcharr" : "AIOStreams";
     return at(nm, x.via === "dispatcharr" ? "/stats" : "/dashboard/streams/active", `<span class="via via-${x.via}">${appIcon(nm)}${nm}</span>`); };
   return `<h2 class="first">Right now</h2><div class="now">
-      <div><b>${n.viewers}</b><span>${n.viewers ? `watching in Emby · ${n.direct} direct, ${n.transcoding} transcoding` : "watching in Emby"}</span></div>
-      <div><b>${n.mbps} MB/s</b><span>from usenet, ${plural(n.streams, "stream")}</span></div>
-      <div><b>${n.connections} / ${n.connections_max}</b><span>${at("AIOStreams", "/dashboard/usenet", "usenet connections")}</span></div>
-      ${lt && lt.ok ? `<div><b>${live.length}</b><span>live TV ${live.length === 1 ? "channel" : "channels"}${logins.length ? ` · ${logins.reduce((a, x) => a + x.used, 0)} / ${logins.reduce((a, x) => a + x.max, 0)} IPTV logins` : ""}</span></div>`
-        : `<div><b>${n.has_backup ? (n.backup_share_pct ?? 0) + "%" : "–"}</b><span>${n.has_backup ? "from the backup provider" : "no backup provider"}</span></div>`}
+      <div><b>${n.viewers}</b><span>${n.viewers === 1 ? "stream" : "streams"} playing in Emby${n.viewers ? ` · ${n.transcoding} of them converted by Emby` : ""}</span></div>
+      <div><b>${n.mbps} MB/s</b><span>downloading from usenet for ${plural(n.streams, "stream")}</span></div>
+      <div><b>${n.connections} / ${n.connections_max}</b><span>${at("AIOStreams", "/dashboard/usenet", "usenet connections")} in use (your plan's limit)</span></div>
+      ${lt && lt.ok ? `<div><b>${live.length}</b><span>live TV ${live.length === 1 ? "channel" : "channels"} playing${logins.length ? ` · ${logins.reduce((a, x) => a + x.used, 0)} of ${logins.reduce((a, x) => a + x.max, 0)} IPTV streams in use` : ""}</span></div>`
+        : `<div><b>${n.has_backup ? (n.backup_share_pct ?? 0) + "%" : "–"}</b><span>${n.has_backup ? "of usenet articles came from the backup provider" : "no backup provider set up"}</span></div>`}
     </div>
-    ${n.sessions.length ? `<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Who</th><th>Playing</th><th>From</th><th>File</th><th>How</th><th>Bitrate</th></tr></thead><tbody>
+    ${n.sessions.length ? `<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Who</th><th>Playing</th><th>Comes from</th><th>File</th><th>How it plays</th><th>Bitrate</th></tr></thead><tbody>
       ${n.sessions.map(x => `<tr><td>${esc(x.user)}<div class="meta small">${esc(x.device)}</div></td><td>${src(x.link, esc(x.title))}${x.paused ? ` <span class="meta">paused</span>` : ""}</td>
         <td>${via(x)}</td>
         <td class="num">${esc(x.source || "–")}</td>
-        <td><span class="${x.how === "transcoding" ? "meh" : x.how === "direct play" ? "good" : ""}">${esc(x.how)}</span>${x.hw === false ? ` <span class="meta">on the CPU</span>` : x.hw ? ` <span class="meta">on the GPU</span>` : ""}
+        <td><span class="${x.how === "transcoding" ? "meh" : x.how === "direct play" ? "good" : ""}" title="${esc(howWords(x.how).long)}">${esc(howWords(x.how).short)}</span>${x.hw === false ? ` <span class="meta">on the CPU</span>` : x.hw ? ` <span class="meta">on the GPU</span>` : ""}
           ${x.reasons.length ? `<div class="meta small">${x.reasons.map(esc).join("; ")}</div>` : ""}</td>
         <td class="num">${x.mbps != null ? x.mbps + " Mbit/s" : "–"}</td></tr>`).join("")}</tbody></table></div>` : ""}
     ${n.sessions.some(x => x.how === "transcoding" && x.via !== "dispatcharr") ? `<p class="note">${transcodeHint(n.sessions.filter(x => x.via !== "dispatcharr"))}</p>` : ""}
-    ${live.length ? `<h3 class="sub">Live TV through Dispatcharr</h3><div class="tablewrap"><table><thead><tr><th>Channel</th><th>Watching</th><th>Quality</th><th>IPTV login</th></tr></thead><tbody>
+    ${live.length ? `<h3 class="sub">Live TV through Dispatcharr</h3><div class="tablewrap"><table><thead><tr><th>Channel</th><th>Watched on</th><th>Quality</th><th>IPTV login</th></tr></thead><tbody>
       ${live.map(c => `<tr><td>${at("Dispatcharr", "/stats", esc(c.name))}${c.healthy === false ? ` <span class="meh">· stalling</span>` : ""}<div class="meta small">for ${c.minutes} min</div></td>
         <td>${c.watchers.length ? c.watchers.map(w => esc(w.app)).join(", ") : plural(c.clients, "viewer")}<div class="meta small">${c.watchers.map(w => esc(w.ip)).filter(Boolean).join(", ")}</div></td>
         <td class="num">${esc(c.quality || "–")}${c.kbps ? `<div class="meta small">${(c.kbps / 1000).toFixed(1)} Mbit/s</div>` : ""}</td>
         <td>${c.login ? at("Dispatcharr", "/sources", esc(c.login)) : "–"}</td></tr>`).join("")}</tbody></table></div>` : ""}
-    ${logins.length > 1 && live.length ? `<p class="note">IPTV logins: ${logins.map(x => `${esc(x.name)} <b>${x.used}/${x.max}</b>`).join(" · ")}</p>` : ""}
-    ${n.has_backup && n.backup_share_pct >= 15 ? `<p class="note"><span class="meh">The backup provider fills ${n.backup_share_pct}% of articles.</span> Your main provider misses more than usual.</p>` : ""}`;
+    ${logins.length > 1 && live.length ? `<p class="note">Streams in use per IPTV login: ${logins.map(x => `${esc(x.name)} <b>${x.used} of ${x.max}</b>`).join(" · ")}</p>` : ""}
+    ${n.has_backup && n.backup_share_pct >= 15 ? `<p class="note"><span class="meh">${n.backup_share_pct}% of usenet articles come from the backup provider.</span>
+ Your main provider is missing more articles than usual.</p>` : ""}`;
 }
 async function overview() {
   const d = await api(`/api/stack?window=${S.win}`).catch(() => null);
@@ -584,31 +586,33 @@ async function overview() {
     <p><a class="btn" href="${lanUrl(5055)}" target="_blank" rel="noopener">Open Seerr</a></p></div>`;
 
   const headline = f.requested
-    ? `${f.available} of ${plural(f.requested, "request")} became watchable${f.minutes_to_play_median != null ? `, typically in ${mins(f.minutes_to_play_median)}` : ""}`
+    ? `${f.available} of ${plural(f.requested, "request")} can be watched now${f.minutes_to_play_median != null ? `, usually ${mins(f.minutes_to_play_median)} after the request` : ""}`
     : `No requests in the last ${span}`;
   return `${L.files ? libraryPanel(L, span) : ""}
     <h2>Requests in the last ${span}</h2>
     ${f.requested ? `<p class="verdict sm">${headline}</p>` : `<p class="muted" style="margin:0">None in this period.</p>`}
     ${f.requested ? `<div class="funnel" style="margin-top:14px">
       ${bar("Requested", `in ${at("Seerr", "/requests", "Seerr")}`, f.requested, f.requested)}
-      ${bar("Watchable", `in ${at("Emby", "/web/index.html", "Emby")}`, f.available, f.requested, "ok")}
+      ${bar("Ready to watch", `in ${at("Emby", "/web/index.html", "Emby")}`, f.available, f.requested, "ok")}
       ${bar("Watched", "played at least once", f.watched, f.requested, "ok")}
     </div>` : ""}
-    <p class="note">${plural(f.grabs, "release")} grabbed · ${f.imports} imported · ${f.failed} failed${f.minutes_to_play_worst != null ? ` · slowest request ${mins(f.minutes_to_play_worst)}` : ""}
-      · history in ${at("Sonarr", "/activity/history", "Sonarr")} and ${at("Radarr", "/activity/history", "Radarr")}</p>
-    ${f.stuck.length ? `<h2>Waiting over 2 hours</h2><div class="panel"><ul class="list">${f.stuck.map(x => `<li><span>${src(x.link, esc(x.title))}${x.by ? ` <span class="meta">· requested by ${esc(x.by)}</span>` : ""}</span><span class="meta">${esc(x.status)} · ${x.age_h} h</span></li>`).join("")}</ul></div>
+    <p class="note">Sonarr and Radarr picked ${plural(f.grabs, "release")} · ${f.imports} landed in the library · ${f.failed} failed${f.minutes_to_play_worst != null ? ` · slowest request took ${mins(f.minutes_to_play_worst)}` : ""}
+      · the full history is in ${at("Sonarr", "/activity/history", "Sonarr")} and ${at("Radarr", "/activity/history", "Radarr")}</p>
+    ${f.stuck.length ? `<h2>Requests waiting over 2 hours</h2><div class="panel"><ul class="list">${f.stuck.map(x => `<li><span>${src(x.link, esc(x.title))}${x.by ? ` <span class="meta">· requested by ${esc(x.by)}</span>` : ""}</span><span class="meta">${esc(x.status)} · ${x.age_h} h</span></li>`).join("")}</ul></div>
       <p class="note">“No release found yet” usually means nothing in your language or quality exists yet. Sonarr and Radarr keep looking.</p>` : ""}
-    ${d.indexers.length ? `<h2>Indexers</h2><div class="tablewrap"><table><thead><tr><th>Indexer</th><th>Grabbed</th><th>Landed</th><th>Complete</th></tr></thead><tbody>
+    ${d.indexers.length ? `<h2>Indexers</h2><div class="tablewrap"><table><thead><tr><th>Indexer</th><th>Releases picked</th><th>Became a file</th><th>Complete on usenet</th></tr></thead><tbody>
       ${d.indexers.map(r => `<tr><td>${at("Prowlarr", "/indexers", esc(r.indexer.replace(/ \(Prowlarr\)$/, "")))}</td><td class="num">${at("Prowlarr", "/history", r.grabs)}</td>
         <td class="num">${r.imported} · ${pctTxt(r.landed_pct, 90, 75)}</td>
-        <td class="num">${r.complete_pct == null ? "–" : at("AIOStreams", "/dashboard/usenet/stats", pctTxt(r.complete_pct, 95, 85))}${r.dead_on_arrival ? ` <span class="meta">${r.dead_on_arrival} dead</span>` : ""}</td></tr>`).join("")}</tbody></table></div>
-      <p class="note">Landed: the grab became a file. Complete: AIOStreams' nightly check found the whole release on usenet.${
-        d.indexers.every(r => r.complete_pct == null) && d.indexer_check ? ` <span class="meh">${d.indexer_check.aio == null ? "AIOStreams didn't answer, so Complete is empty."
-          : `None of these grabs could be matched to AIOStreams' library (${d.indexer_check.aio} releases there), so Complete is empty.`}</span>` : ""}</p>` : ""}
+        <td class="num">${r.complete_pct == null ? "–" : at("AIOStreams", "/dashboard/usenet/stats", pctTxt(r.complete_pct, 95, 85))}${r.dead_on_arrival ? ` <span class="meta">${r.dead_on_arrival} already gone</span>` : ""}</td></tr>`).join("")}</tbody></table></div>
+      <p class="note">Which indexer the releases came from. <b>Became a file</b>: how many of the picked releases ended up in the library. <b>Complete on usenet</b>: how many AIOStreams' nightly check found whole, with no parts missing; “already gone” ones were removed from usenet before they could play.${
+        d.indexers.every(r => r.complete_pct == null) && d.indexer_check ? ` <span class="meh">${d.indexer_check.aio == null ? "AIOStreams didn't answer, so Complete on usenet is empty."
+          : `None of these releases could be matched to AIOStreams' library (${d.indexer_check.aio} releases there), so Complete on usenet is empty.`}</span>` : ""}</p>` : ""}
     ${H.failed ? `<h2>Self-healing</h2>
+    <p class="lead-s">Releases that broke (failed to download or vanished from usenet) and whether Sonarr and Radarr found a replacement by themselves.</p>
     <div class="panel"><ul class="list">
-      <li><span>Releases that died or failed</span><span class="count">${H.failed}</span></li>
-      <li><span>Replaced on its own</span><span class="count ${H.replaced === H.failed ? "good" : ""}">${H.replaced}</span></li>
+      <li><span>Releases that broke</span><span class="count">${H.failed}</span></li>
+      <li><span>Replaced by themselves</span>
+<span class="count ${H.replaced === H.failed ? "good" : ""}">${H.replaced}</span></li>
       <li><span>Still waiting for a replacement${H.waiting.length ? `<div class="small muted">${H.waiting.map(x => src(x.link, esc(x.title))).join(", ")}</div>` : ""}</span><span class="count ${H.waiting_count ? "meh" : ""}">${H.waiting_count}</span></li>
     </ul></div>` : ""}
     ${ltNote}`;
@@ -618,6 +622,7 @@ async function overview() {
 const W = { view: "stats", page: 1, q: "", kind: "", user: "", why: "", metric: "plays", top: "series", rank: "hours" };
 // one meaning per colour: what was watched in colour; how it played in greys, with conversion in amber
 const SER = { Episodes: "var(--s1)", Movies: "var(--s2)", "Live TV": "var(--s3)", "Direct play": "var(--n1)", "Direct stream": "var(--n2)", Transcode: "var(--warn)", File: "var(--n1)", "On screen": "var(--n2)" };
+const HOWN = { "Direct play": "Played as is", "Direct stream": "Repackaged", Transcode: "Converted" };
 const dayOf = t => new Date(t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 const hrs = h => h == null ? "–" : h >= 100 ? `${Math.round(h)} h` : h >= 1 ? `${h} h` : `${Math.round(h * 60)} min`;
 const mins = s => s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min` : `${Math.max(1, Math.round(s / 60))} min`;
@@ -630,7 +635,16 @@ const avatar = (name, id, cls = "avatar") => id
   : `<span class="${cls} none"><span class="ph">${initials(name)}</span></span>`;
 const toPerson = name => `<a href="#stats" class="wlink" data-wperson="${esc(name)}">${esc(name)}</a>`;
 const toTitle = (grp, via, text) => `<a href="#stats" class="wlink" data-wtitle="${esc(grp)}" data-wvia="${esc(via || "")}">${text ?? esc(grp)}</a>`;
-const howTag = m => !m ? "" : `<span class="how how-${m === "direct play" ? "dp" : m === "direct stream" ? "ds" : m === "live TV" ? "live" : "tc"}">${esc(m === "audio transcoding" ? "audio transcode" : m)}</span>`;
+// how a play reached the player, in plain words: Emby's own terms ("direct play", "transcoding") mean little to most people
+const HOW = {
+  "direct play": ["Plays as is", "The player plays the file as it is. Nothing is converted."],
+  "direct stream": ["Repackaged", "Emby repacks the file into a container the player opens. Picture and sound stay untouched; almost no work for the server."],
+  "transcoding": ["Converted", "The player can't play the file as it is, so Emby converts the video while you watch. That's real work for the server."],
+  "audio transcoding": ["Sound converted", "Emby converts only the sound for this player. The picture plays untouched; little work for the server."],
+  "live TV": ["Live TV", "A live TV channel."],
+};
+const howWords = m => { const x = HOW[m]; return x ? { short: x[0], long: x[1] } : { short: m || "", long: "" }; };
+const howTag = m => !m ? "" : `<span class="how how-${m === "direct play" ? "dp" : m === "direct stream" ? "ds" : m === "live TV" ? "live" : "tc"}" title="${esc(howWords(m).long)}">${esc(howWords(m).short)}</span>`;
 
 // a column chart in SVG: stacked series (2px surface gap between segments), 4px rounded data end,
 // hairline grid, one hover target per column with every series in the tooltip
@@ -724,7 +738,7 @@ async function watching() {
 
 // Why Emby converts, heaviest first, in plain words: what happened, how much work it is for the
 // server, and what you can do about it. A row opens those plays in History.
-const LOAD = { heavy: ["meh", "Heavy"], light: ["good", "Light"], setting: ["", "A setting"] };
+const LOAD = { heavy: ["meh", "Heavy for the server"], light: ["good", "Light for the server"], setting: ["", "Caused by a setting"] };
 function reasonHelp(reason) {
   const r = reason.toLowerCase();
   const rules = [
@@ -751,7 +765,8 @@ function reasonHelp(reason) {
   return { load, what, help };
 }
 function reasonsTable(reasons) {
-  return `<div class="tablewrap"><table class="rtable"><thead><tr><th>Why</th><th>Plays</th><th>Players</th><th>What happens</th><th>What helps</th></tr></thead><tbody>
+  return `<div class="tablewrap"><table class="rtable"><thead><tr><th>Reason</th><th>Plays</th><th>Players</th><th>What happens</th><th>What helps</th></tr></thead>
+<tbody>
     ${reasons.map(x => { const h = reasonHelp(x.reason), [cls, label] = LOAD[h.load];
       return `<tr data-why="${esc(x.reason)}" tabindex="0" title="Show these plays in History"><td>${esc(x.reason[0].toUpperCase() + x.reason.slice(1))}</td><td class="num">${x.n}</td>
         <td>${esc(x.players.join(", "))}${x.more_players ? ` <span class="muted">+${x.more_players}</span>` : ""}</td>
@@ -774,15 +789,15 @@ function spark(values, top) {
     ${top ? `<line x1="0" x2="${w}" y1="2" y2="2" class="ceil"/>` : ""}<path d="${d}"/></svg>`;
 }
 function trendTxt(t) {
-  if (t.state === "collecting") return `<span class="muted">learning · about ${t.left_h} h to go</span>`;
+  if (t.state === "collecting") return `<span class="muted">still measuring · trend in about ${t.left_h} h</span>`;
   if (t.state === "steady") return `<span class="muted">steady${Math.abs(t.per_day) >= 20 ? ` · ${t.per_day > 0 ? "+" : ""}${gbTxt(t.per_day)} a day` : ""}</span>`;
-  const left = t.to_limit_days == null ? "" : t.to_limit_days < 0.5 ? " · at its ceiling within hours" : t.to_limit_days < 1.5 ? " · ceiling in about a day" : ` · ceiling in about ${Math.round(t.to_limit_days)} days`;
+  const left = t.to_limit_days == null ? "" : t.to_limit_days < 0.5 ? " · reaches its limit within hours" : t.to_limit_days < 1.5 ? " · reaches its limit in about a day" : ` · reaches its limit in about ${Math.round(t.to_limit_days)} days`;
   return `<span class="${t.to_limit_days != null && t.to_limit_days <= 7 ? "meh" : "muted"}">grows ${gbTxt(t.per_day)} a day${left}</span>`;
 }
 async function systemStats() {
   const d = await api(`/api/system?window=${S.swin}`).catch(() => null);
   if (!d) return null;
-  if (!d.sampled) return `<div class="empty"><h3 class="sub">No readings yet</h3><p>The VM measures itself every 5 minutes; the first numbers show here shortly after an update.</p></div>`;
+  if (!d.sampled) return `<div class="empty"><h3 class="sub">No readings yet</h3><p>The server (the VM ninjarr runs on) measures itself every 5 minutes; the first numbers show here shortly after an update.</p></div>`;
   const N = d.now, used = N.mem_total_mb - N.mem_avail_mb, span = S.swin === "7d" ? "7 days" : "24 hours";
   const dpct = N.disk_size_mb ? Math.round(100 * N.disk_used_mb / N.disk_size_mb) : null;
   const dk = d.disk.state === "filling" ? (d.disk.to_full_days <= 90 ? `<span class="meh">full in about ${d.disk.to_full_days} days</span>` : `+${gbTxt(d.disk.per_day)} a day`)
@@ -795,31 +810,32 @@ async function systemStats() {
   const vol = mb => mb >= 1048576 ? `${(mb / 1048576).toFixed(1)} TB` : gbTxt(mb);
   const net = n => n ? `<span title="received · sent">↓ ${vol(n.in)} · ↑ ${vol(n.out)}</span>` : "–";
   return `
+    <p class="lead-s">The machine ninjarr runs on (a VM): how busy it is and how much memory each app uses. What's being watched is under Watching.</p>
     <div class="now">
-      <div><b>${N.cpu_pct == null ? "–" : Math.round(N.cpu_pct) + "%"}</b><span>CPU now${N.cores ? ` · ${N.cores} cores` : ""}</span></div>
+      <div><b>${N.cpu_pct == null ? "–" : Math.round(N.cpu_pct) + "%"}</b><span>CPU busy right now${N.cores ? ` · ${N.cores} cores` : ""}</span></div>
       <div><b>${gbTxt(used)}</b><span>of ${gbTxt(N.mem_total_mb)} memory in use</span></div>
-      <div><b class="${waitCls}">${wait == null ? "–" : (wait < 0.1 ? "0" : wait.toFixed(1)) + "%"}</b><span>of the last minute waiting for memory</span></div>
-      ${N.swap_mb ? `<div><b>${gbTxt(N.swap_used_mb)}</b><span>of ${gbTxt(N.swap_mb)} swap in use</span></div>` : ""}
-      ${dpct != null ? `<div><b>${dpct}%</b><span>of ${gbTxt(N.disk_size_mb)} disk used${dk ? ` · ${dk}` : ""}</span></div>` : ""}
+      <div><b class="${waitCls}">${wait == null ? "–" : (wait < 0.1 ? "0" : wait.toFixed(1)) + "%"}</b><span>of the last minute apps waited for memory · near 0 is healthy</span></div>
+      ${N.swap_mb ? `<div><b>${gbTxt(N.swap_used_mb)}</b><span>of ${gbTxt(N.swap_mb)} swap in use (memory moved to disk)</span></div>` : ""}
+      ${dpct != null ? `<div><b>${dpct}%</b><span>of the ${gbTxt(N.disk_size_mb)} disk full${dk ? ` · ${dk}` : ""}</span></div>` : ""}
     </div>
     <div class="wfacts">
-      ${d.net_mb ? `<span>The VM received <b>${vol(d.net_mb.in)}</b> and sent <b>${vol(d.net_mb.out)}</b> in the last ${span}</span>` : ""}
-      <span>App ceilings add up to <b>${gbTxt(d.ceilings_mb)}</b> of <b>${gbTxt(N.mem_total_mb)}</b> — they rarely all peak at once</span>
-      ${oom.length ? `<span class="meh">${plural(oom.length, "app")} cut off at the ceiling this week</span>` : ""}
-      ${dns.piles_7d ? `<span class="meh">DNS piled up ${plural(dns.piles_7d, "time")} this week</span>` : ""}
+      ${d.net_mb ? `<span>The server received <b>${vol(d.net_mb.in)}</b> and sent <b>${vol(d.net_mb.out)}</b> in the last ${span}</span>` : ""}
+      <span>Each app has a memory limit; together they add up to <b>${gbTxt(d.ceilings_mb)}</b> of <b>${gbTxt(N.mem_total_mb)}</b>. That's fine: they rarely all peak at once</span>
+      ${oom.length ? `<span class="meh">${plural(oom.length, "app")} hit ${oom.length === 1 ? "its" : "their"} memory limit and ${oom.length === 1 ? "was" : "were"} restarted this week</span>` : ""}
+      ${dns.piles_7d ? `<span class="meh">Name lookups (DNS) piled up ${plural(dns.piles_7d, "time")} this week</span>` : ""}
     </div>
 
     <div class="wchap"><h2 class="chap">Over ${span}</h2></div>
     <div class="wgrid">
-      ${chart("Memory in use", { unit: "", suffix: " GB", series: one("In use", "mem") }, `The most in use in each ${unit}, in GB, of ${gbTxt(N.mem_total_mb)}.`)}
-      ${chart("Waiting for memory", { suffix: "%", series: one("Waiting", "wait") }, `The worst 5 minutes in each ${unit}: how much of the time apps were stuck waiting for memory. Near 0 is normal; it climbs before a VM freezes.`)}
-      ${chart("CPU", { suffix: "%", series: one("CPU", "cpu") }, `Average in each ${unit}, all cores together. Emby converting a video shows up here.`)}
+      ${chart("Memory in use", { unit: "", suffix: " GB", series: one("In use", "mem") }, `The highest point in each ${unit}, in GB, out of ${gbTxt(N.mem_total_mb)}.`)}
+      ${chart("Waiting for memory", { suffix: "%", series: one("Waiting", "wait") }, `How much of the time apps were stuck waiting for memory (the worst 5 minutes in each ${unit}). Near 0 is healthy; it climbs when the server runs short, before it freezes.`)}
+      ${chart("CPU", { suffix: "%", series: one("CPU", "cpu") }, `How busy the processor was, on average in each ${unit}, all cores together. Emby converting a video shows up here.`)}
       ${chart("Network", { suffix: " GB", grouped: true, series: [{ name: "Received", color: "var(--s1)", values: d.series.in }, { name: "Sent", color: "var(--s2)", values: d.series.out }] },
-        `GB through the VM's network card in each ${unit}: streams to your players, usenet downloads, everything.`)}
+        `GB in and out of the server in each ${unit}: streams to your players, usenet downloads, everything.`)}
     </div>
 
     <div class="wchap"><h2 class="chap">Apps</h2></div>
-    <div class="tablewrap"><table class="ptable systable"><thead><tr><th>App</th><th>Memory</th><th class="sp-c">Last ${span}</th><th class="tr-c">Where it's heading</th><th>CPU</th><th>Transferred <span class="muted">${span}</span></th></tr></thead><tbody>
+    <div class="tablewrap"><table class="ptable systable"><thead><tr><th>App</th><th>Memory · limit</th><th class="sp-c">Memory, last ${span}</th><th class="tr-c">Trend</th><th>CPU</th><th>Data in · out <span class="muted">${span}</span></th></tr></thead><tbody>
       ${d.apps.map(a => `<tr><td>${appIcon(a.label)}${esc(a.label)}</td>
         <td class="memc"><div class="mem-t"><b>${gbTxt(a.mb)}</b>${a.limit_mb ? `<span class="muted"> of ${gbTxt(a.limit_mb)}</span>` : ""}</div>
           ${a.limit_mb ? `<span class="hb-t"><span style="width:${Math.min(100, Math.max(2, 100 * a.mb / a.limit_mb))}%${a.mb > 0.85 * a.limit_mb ? ";background:var(--warn)" : ""}"></span></span>` : ""}
@@ -827,16 +843,20 @@ async function systemStats() {
         <td class="sp-c">${spark(a.spark, a.limit_mb)}</td><td class="tr-c">${trendTxt(a.trend)}</td>
         <td class="num">${a.cpu == null ? "–" : Math.round(a.cpu) + "%"}</td><td class="num netc">${net(a.net)}${a.traffic && a.traffic.some(v => v) ? spark(a.traffic).replace('class="spark"', 'class="spark spark-net"') : ""}</td></tr>`).join("")}
     </tbody></table></div>
-    <p class="cap">Memory and its line against the app's ceiling (the dashed top) · where it's heading: the lowest it falls back to, over two days or more · CPU as of the last reading (100% is one core) · transferred: what the app received (↓) and sent (↑) in the last ${span}, and its line both ways together, on its own network connection: AIOStreams' ↓ is what it fetched from usenet, Emby's ↑ what went out to your players.</p>
+    <p class="cap"><b>Memory · limit</b>: what the app uses now, out of the most it may use; past its limit an app is restarted. The line shows the last ${span}, with the limit as the dashed top.
+      <b>Trend</b>: whether the app's memory keeps creeping up, judged from the lowest it drops back to over two days or more.
+      <b>CPU</b>: at the last reading; 100% is one full core.
+      <b>Data in · out</b>: what the app received (↓) and sent (↑) in the last ${span}. AIOStreams' ↓ is what it downloaded from usenet, Emby's ↑ what went out to your players.</p>
 
     ${dns.piles_7d ? `<div class="wchap"><h2 class="chap">DNS pile-ups</h2></div>
-    <p class="lead-s">Docker answers the apps' name lookups. When more than it can hold are waiting at once, they fail until it catches up. It often comes with memory running short — compare with Waiting for memory above.</p>
+    <p class="lead-s">Apps find each other and the internet through name lookups (DNS), which Docker answers. When too many wait at once, they fail until Docker catches up, and apps briefly can't reach each other. It often comes with memory running short: compare with Waiting for memory above.</p>
     <div class="wgrid"><div class="tablewrap"><table class="ptable"><thead><tr><th>Day</th><th>Pile-ups</th></tr></thead><tbody>
       ${dns.days.map(x => `<tr><td>${esc(x.day)}</td><td class="num">${x.n}</td></tr>`).join("")}</tbody></table></div>
-      ${dns.names.length ? `<div class="tablewrap"><table class="ptable"><thead><tr><th>Looked up meanwhile</th><th>Used by</th><th>Times</th></tr></thead><tbody>
+      ${dns.names.length ? `<div class="tablewrap"><table class="ptable"><thead><tr><th>Name looked up during them</th><th>Used by</th><th>Times</th></tr></thead><tbody>
       ${dns.names.map(x => `<tr><td>${esc(x.name)}</td><td class="muted">${esc(x.who || "–")}</td><td class="num">${x.n}</td></tr>`).join("")}</tbody></table></div>` : ""}</div>` : ""}
 
-    <p class="note">Measured on the VM every 5 minutes, kept for 7 days${d.since ? `, since ${esc(when(d.since))}` : ""}. Last reading ${esc(when(d.sampled))}. The streaming numbers are under Watching.</p>`;
+    <p class="note">Measured every 5 minutes and kept for 7 days${d.since ? `, since ${esc(when(d.since))}` : ""}. Last reading ${esc(when(d.sampled))}.</p>`;
+
 }
 
 async function watchStats() {
@@ -865,27 +885,27 @@ async function watchStats() {
   // 3 · Playback: folded unless opened (remembered), with a one-line summary on the fold
   const hows = ["Direct play", "Direct stream", "Transcode"].filter(k => d.by_time.some(b => b.how[k]));
   const heavy = d.reasons.find(x => reasonHelp(x.reason).load === "heavy");
-  const pbSum = [`${T.transcode_pct}% converted`, d.devices.length && plural(d.devices.length, "player"),
+  const pbSum = [`Emby converted ${T.transcode_pct}% of the watch time`, d.devices.length && plural(d.devices.length, "player"),
     heavy && `mostly because ${heavy.reason.replace(/^the device /, "it ")}`].filter(Boolean).join(" · ");
 
   return `
     <div class="now">
       <div><b>${hrs(T.hours)}</b><span>watched in ${span}</span></div>
-      <div><b>${T.plays}</b><span>${T.plays === 1 ? "play" : "plays"} of ${plural(T.titles, "title")}</span></div>
-      <div><b>${T.viewers}</b><span>${T.viewers === 1 ? "person" : "people"} watching</span></div>
-      <div><b>${T.peak}</b><span>at once at most${T.peak_at ? ` · ${esc(when(T.peak_at))}` : ""}</span></div>
+      <div><b>${T.plays}</b><span>${T.plays === 1 ? "time" : "times"} something was played · ${plural(T.titles, "different title")}</span></div>
+      <div><b>${T.viewers}</b><span>${T.viewers === 1 ? "person" : "people"} watched</span></div>
+      <div><b>${T.peak}</b><span>most plays at the same time${T.peak_at ? ` · ${esc(when(T.peak_at))}` : ""}</span></div>
     </div>
     <div class="wfacts">
-      ${T.live_pct ? `<span><b>${T.live_pct}%</b> live TV</span>` : ""}
-      ${T.finished_pct != null ? `<span><b>${T.finished_pct}%</b> watched to the end</span>` : ""}
-      ${T.paused_h ? `<span><b>${hrs(T.paused_h)}</b> paused</span>` : ""}
-      ${d.longest ? `<span>Longest sitting <b>${hrs(d.longest.hours)}</b> · ${esc(d.longest.user)}, ${esc(d.longest.title)}</span>` : ""}
+      ${T.live_pct ? `<span><b>${T.live_pct}%</b> of the time was live TV</span>` : ""}
+      ${T.finished_pct != null ? `<span><b>${T.finished_pct}%</b> of episodes and movies were watched to the end</span>` : ""}
+      ${T.paused_h ? `<span><b>${hrs(T.paused_h)}</b> on pause</span>` : ""}
+      ${d.longest ? `<span>Longest single play <b>${hrs(d.longest.hours)}</b> · ${esc(d.longest.user)}, ${esc(d.longest.title)}</span>` : ""}
     </div>
 
     <div class="wover">
     ${kinds.length ? `<section class="wtop">
       <div class="wsec-h"><h2>Top ${esc((kinds.find(([k]) => k === W.top) || [, ""])[1].toLowerCase())}</h2>
-        <div class="wtop-c">${kinds.length > 1 ? seg("data-wtop", W.top, kinds, "Kind") : ""}${seg("data-wrank", W.rank, [["hours", "Time"], ["viewers", "Viewers"]], "Rank by")}</div></div>
+        <div class="wtop-c">${kinds.length > 1 ? seg("data-wtop", W.top, kinds, "Kind") : ""}${seg("data-wrank", W.rank, [["hours", "Most time"], ["viewers", "Most people"]], "Rank by")}</div></div>
       <ol class="tops">${tops.map((x, i) => `<li><span class="tops-p">${poster(x.art, "poster", x.name)}<span class="rank">${i + 1}</span></span>
         <span class="tops-n" title="${esc(x.name)}">${toTitle(x.name, x.via)}</span><span class="tops-m">${metric(x)}</span></li>`).join("")}</ol>
     </section>` : ""}
@@ -894,7 +914,7 @@ async function watchStats() {
       <div><h2>People</h2><div class="panel plist">${people.map(x => `<div class="pl-r">${avatar(x.name, x.user_id, "avatar")}
           <div class="pl-b"><div class="pl-t">${toPerson(x.name)}<span class="muted">${hrs(x.hours)} · ${plural(x.plays, "play")}</span></div>
           <span class="hb-t"><span style="width:${Math.max(2, 100 * x.hours / pmax)}%"></span></span></div></div>`).join("")}</div></div>
-      ${d.last ? `<div><h2>Last watched</h2><div class="wlast">${poster(d.last.art, "poster", d.last.title)}<div class="wl-b">
+      ${d.last ? `<div><h2>Latest play</h2><div class="wlast">${poster(d.last.art, "poster", d.last.title)}<div class="wl-b">
         <div class="wl-t">${toTitle(d.last.grp || d.last.title, d.last.via, esc(d.last.title))}</div>
         <div class="wl-m">${avatar(d.last.user, d.last.user_id, "avatar sm")}${toPerson(d.last.user)}</div><div class="wl-w">${esc(when(d.last.when))}</div></div></div></div>` : ""}
     </div>
@@ -902,27 +922,28 @@ async function watchStats() {
 
     <div class="wchap"><h2 class="chap">When</h2></div>
     <div class="wwhen"><div>
-    <div class="wsec-h"><h3 class="sub">Over time</h3>${seg("data-wmetric", W.metric, [["plays", "Plays"], ["hours", "Time"]], "Measure")}</div>
+    <div class="wsec-h"><h3 class="sub">Over time</h3>${seg("data-wmetric", W.metric, [["plays", "Plays"], ["hours", "Hours"]], "Measure")}</div>
     <div class="panel wchart">${colChart({ labels, unit: W.metric === "hours" ? "h" : "", series: kindsT.map(k => ({ name: k, color: SER[k], values: d.by_time.map(b => b[W.metric][k]) })) })}
-      <p class="cap">${W.metric === "plays" ? "Plays" : "Hours watched"} per ${unit}, by what was watched.</p></div></div>
+      <p class="cap">${W.metric === "plays" ? "How often something was played" : "Hours watched"} per ${unit}, split into episodes, movies and live TV.</p></div></div>
     <div><div class="wsec-h"><h3 class="sub">Hour by hour</h3></div>
-    <div class="panel" style="padding:14px 16px">${heatGrid(d.heat, d.weekday, d.hour)}<p class="cap">Darker is more watched. Totals per weekday on the right, per hour along the bottom.</p></div></div>
+    <div class="panel" style="padding:14px 16px">${heatGrid(d.heat, d.weekday, d.hour)}<p class="cap">Each square is one hour of one weekday; the darker, the more was watched then. Hours per weekday on the right, per time of day along the bottom.</p></div></div>
     </div>
 
     <details class="wchap pb" ${pref("stats.playback") === "open" ? "open" : ""}><summary><h2 class="chap">Playback</h2><span class="muted">${esc(pbSum)}</span></summary>
       <div class="wgrid">
-        ${hows.length ? `<div><h3 class="sub">How it plays</h3><div class="panel wchart">${colChart({ labels, unit: "h", height: 160, series: hows.map(k => ({ name: k, color: SER[k], values: d.by_time.map(b => b.how[k]) })) })}
-          <p class="cap">Hours per ${unit}: played as is, repackaged, or converted by Emby.</p></div></div>` : ""}
+        ${hows.length ? `<div><h3 class="sub">How it plays</h3><div class="panel wchart">${colChart({ labels, unit: "h", height: 160, series: hows.map(k => ({ name: HOWN[k], color: SER[k], values: d.by_time.map(b => b.how[k]) })) })}
+          <p class="cap">Hours per ${unit}. <b>Played as is</b>: the player handles the file. <b>Repackaged</b>: Emby only repacks it, almost no work. <b>Converted</b>: Emby converts the video while you watch, real work for the server.</p></div></div>` : ""}
         ${d.resolution.length ? `<div><h3 class="sub">Picture</h3><div class="panel wchart">${colChart({ labels: d.resolution.map(r => r.res), height: 160, every: 1, grouped: true,
-            series: [{ name: "File", color: SER.File, values: d.resolution.map(r => r.source) }, { name: "On screen", color: SER["On screen"], values: d.resolution.map(r => r.stream) }] })}
-          <p class="cap">Plays by resolution: the file, and what reached the screen.</p></div></div>` : ""}
+            series: [{ name: "In the file", color: SER.File, values: d.resolution.map(r => r.source) }, { name: "Sent to the player", color: SER["On screen"], values: d.resolution.map(r => r.stream) }] })}
+          <p class="cap">Plays by picture size: what the file has, and what Emby sent to the player. When the second is lower, Emby shrank the picture.</p></div></div>` : ""}
       </div>
       <h3 class="sub">Players</h3>
-      <div class="tablewrap"><table class="ptable"><thead><tr><th>Player</th><th>Plays</th><th>Watched</th><th>Converted</th><th>Mostly because</th></tr></thead><tbody>
+      <div class="tablewrap"><table class="ptable"><thead><tr><th>Player</th><th>Plays</th><th>Hours</th><th>Converted by Emby</th><th>Main reason</th></tr></thead><tbody>
         ${d.devices.map(x => `<tr><td>${esc(x.device)}</td><td class="num">${x.plays}</td><td class="num">${hrs(x.hours)}</td>
           <td class="num"><span class="${x.transcode_pct >= 50 ? "meh" : x.transcode_pct ? "" : "good"}">${x.transcode_pct}%</span></td>
           <td class="muted">${x.why ? esc(x.why[0].toUpperCase() + x.why.slice(1)) : "–"}</td></tr>`).join("")}</tbody></table></div>
-      ${d.reasons.length ? `<h3 class="sub">Why Emby converts</h3>${reasonsTable(d.reasons)}` : ""}
+      <p class="cap">Converted by Emby: the share of each player's watch time that Emby had to convert because the player can't handle the file.</p>
+      ${d.reasons.length ? `<h3 class="sub">Why Emby converts</h3>${reasonsTable(d.reasons)}<p class="cap">Tap a row to see those plays in History.</p>` : ""}
     </details>
     <p class="note">${since}</p>`;
 }
@@ -933,11 +954,11 @@ function historyTable(rows, opts = {}) {
     const pct = r.runtime && r.position ? Math.min(100, Math.round(100 * r.position / r.runtime)) : null;
     const quality = r.src_res ? `${esc(r.src_res)}${r.stream_res && r.stream_res !== r.src_res ? ` → ${esc(r.stream_res)}` : ""}` : esc(r.source || "–");
     const det = [
-      ["Started", when(r.started)], ["Stopped", when(r.last)], ["Watched", mins(r.watched)], ["Paused", r.paused ? mins(r.paused) : r.origin ? "–" : "0 min"],
-      ["Player", [r.client, r.app_version].filter(Boolean).join(" ")], ["Device", r.device], ["Address", r.ip],
-      ["File", [r.src_res, r.src_codec, r.src_hdr].filter(Boolean).join(" · ")], ["On screen", [r.stream_res, r.stream_codec].filter(Boolean).join(" · ")],
+      ["Started", when(r.started)], ["Stopped", when(r.last)], ["Time watched", mins(r.watched)], ["Paused for", r.paused ? mins(r.paused) : r.origin ? "–" : "0 min"],
+      ["Player app", [r.client, r.app_version].filter(Boolean).join(" ")], ["Device", r.device], ["IP address", r.ip],
+      ["The file", [r.src_res, r.src_codec, r.src_hdr].filter(Boolean).join(" · ")], ["Sent to the player", [r.stream_res, r.stream_codec].filter(Boolean).join(" · ")],
       ["Bitrate", r.bitrate ? `${(r.bitrate / 1000).toFixed(1)} Mbit/s` : ""], ["Audio", r.audio], ["Subtitles", r.subtitles],
-      ["Played as", r.method], ["Why converted", r.reasons], ["IPTV login", r.login],
+      ["How it played", r.method ? `${howWords(r.method).short}: ${howWords(r.method).long}` : ""], ["Why Emby converted it", r.reasons], ["IPTV login", r.login],
       ["Recorded", r.origin === "emby-log" ? "from Emby's activity log (start and stop only)" : "by Dojo"],
     ].filter(([, v]) => v);
     return `<tr class="hrow" data-hrow="${i}">
@@ -951,7 +972,7 @@ function historyTable(rows, opts = {}) {
         <td class="prog t-p ${pct == null ? "nil" : ""}">${pct != null ? `<span class="pbar"><span style="width:${pct}%"></span></span><span class="small muted">${pct}%</span>` : `<span class="small muted">${r.via === "livetv" ? "live" : "–"}</span>`}</td></tr>
       <tr class="hdet" data-hdet="${i}" hidden><td colspan="${opts.noUser ? 6 : 7}"><dl>${det.map(([k, v]) => `<div><dt>${k}</dt><dd>${esc(String(v))}</dd></div>`).join("")}</dl></td></tr>`;
   };
-  return `<div class="tablewrap"><table class="htable"><thead><tr><th>When</th>${opts.noUser ? "" : "<th>Who</th>"}<th>What</th><th>Player</th><th>Quality</th><th>Watched</th><th>Progress</th></tr></thead>
+  return `<div class="tablewrap"><table class="htable"><thead><tr><th>When</th>${opts.noUser ? "" : "<th>Who</th>"}<th>What</th><th>Player</th><th>Picture · how it played</th><th>Time watched</th><th>Reached</th></tr></thead>
     <tbody>${rows.map(tr).join("")}</tbody></table></div>`;
 }
 
@@ -971,7 +992,7 @@ async function watchHistory() {
     <div class="hpager"><span class="muted small">${from}–${to} of ${d.total}</span>
       <span><button class="btn plain" data-hpage="${W.page - 1}" ${W.page <= 1 ? "disabled" : ""}>Newer</button>
       <button class="btn plain" data-hpage="${W.page + 1}" ${to >= d.total ? "disabled" : ""}>Older</button></span></div>
-    <p class="note">Tap a play for its details: player and address, file and what reached the screen, audio, subtitles, and why Emby converted it.</p>`;
+    <p class="note">One row per play: each time someone started something. <b>Reached</b> is how far into it they got. Tap a row for the details: player and IP address, the file and what was sent to the player, audio, subtitles, and why Emby converted it.</p>`;
 }
 
 async function watchPerson() {
@@ -980,32 +1001,40 @@ async function watchPerson() {
   if (!d) return null;
   const back = `<p class="wback"><a href="#stats" class="wlink" data-wview="${esc(W.from || "stats")}">← ${W.from === "history" ? "History" : "Watching"}</a></p>`;
   if (!d.ok) return back + `<div class="empty"><h3>No watch history</h3></div>`;
-  const R = d.requests;
+  const R = d.requests, P = d.totals || {}, all = d.periods.find(p => p.label === "All time");
+  const span = { "24h": "the last 24 hours", "7d": "the last 7 days", "30d": "the last 30 days", "90d": "the last 90 days", all: "all time" }[S.win];
+  const lc = t => /^(Today|Yesterday)/.test(t) ? t[0].toLowerCase() + t.slice(1) : t;
   return `${back}
     <div class="whead">${avatar(d.user, d.user_id, "avatar xl")}<div><h2>${esc(d.user)}</h2>
-      <p class="muted small">${d.first ? `Watching since ${esc(dayOf(d.first))} · last ${esc(when(d.last))}` : ""}</p></div></div>
-    <div class="now">${d.periods.map(p => `<div><b>${p.plays}</b><span>${p.plays === 1 ? "play" : "plays"} · ${hrs(p.hours)}<br>${esc(p.label)}</span></div>`).join("")}</div>
-    <div class="wfacts">${d.finished_pct != null ? `<span><b>${d.finished_pct}%</b> watched to the end</span>` : ""}<span><b>${d.transcode_pct}%</b> transcoded</span><span class="muted">in the chosen period</span></div>
+      <p class="muted small">${d.first ? `First play ${esc(dayOf(d.first))} · latest ${esc(lc(when(d.last)))}${all && S.win !== "all" ? ` · ${hrs(all.hours)} in all` : ""}` : ""}</p></div></div>
+
+    <h3 class="sub" style="margin-top:4px">In ${span}</h3>
+    <div class="now">
+      <div><b>${hrs(P.hours || 0)}</b><span>watched</span></div>
+      <div><b>${P.plays || 0}</b><span>${P.plays === 1 ? "time" : "times"} something was played${P.titles ? ` · ${plural(P.titles, "different title")}` : ""}</span></div>
+      <div><b>${d.finished_pct != null ? d.finished_pct + "%" : "–"}</b><span>of episodes and movies watched to the end</span></div>
+      <div><b>${P.plays ? d.transcode_pct + "%" : "–"}</b><span>of the time Emby had to convert the video</span></div>
+    </div>
 
     ${d.recent.length ? `<h2>Recently watched</h2><div class="strip">${d.recent.map(x => `<div class="strip-i">${poster(x.art, "poster", x.grp)}
       <div class="strip-t">${toTitle(x.grp, x.via, esc(x.title))}</div><div class="strip-w muted small">${esc(when(x.when))}</div></div>`).join("")}</div>` : ""}
 
     <div class="wgrid">
-      <div><h2>What ${esc(d.user)} watches</h2><div class="panel" style="padding:12px 16px">${d.top.length ? hbars(d.top, x => x.hours, x => `${poster(x.art, "poster tiny", x.name)}${toTitle(x.name, x.via)}`) : `<p class="muted small">Nothing in this period.</p>`}</div></div>
-      <div><h2>When</h2><div class="panel" style="padding:14px 16px">${heatGrid(d.heat)}</div></div>
+      <div><h2>Most watched <span class="muted small">· ${span}</span></h2><div class="panel" style="padding:12px 16px">${d.top.length ? hbars(d.top, x => x.hours, x => `${poster(x.art, "poster tiny", x.name)}${toTitle(x.name, x.via)}`) : `<p class="muted small">Nothing in this period.</p>`}</div></div>
+      <div><h2>When <span class="muted small">· ${span}</span></h2><div class="panel" style="padding:14px 16px">${heatGrid(d.heat)}<p class="cap">The darker a square, the more was watched in that hour of that weekday.</p></div></div>
     </div>
 
     <div class="wgrid">
-      <div><h2>Players</h2><div class="tablewrap"><table><thead><tr><th>Player</th><th>Plays</th><th>Watched</th><th>Last</th></tr></thead><tbody>
+      <div><h2>Players <span class="muted small">· all time</span></h2><div class="tablewrap"><table><thead><tr><th>Player</th><th>Plays</th><th>Hours</th><th>Latest</th></tr></thead><tbody>
         ${d.players.map(x => `<tr><td>${esc(x.player)}${x.device && x.device !== x.player ? `<div class="meta small">${esc(x.device)}</div>` : ""}</td><td class="num">${x.plays}</td><td class="num">${hrs(x.hours)}</td><td class="small muted">${esc(when(x.last))}</td></tr>`).join("")}</tbody></table></div></div>
-      <div><h2>Addresses</h2>${d.ips.length ? `<div class="tablewrap"><table><thead><tr><th>Address</th><th>Plays</th><th>Last</th></tr></thead><tbody>
+      <div><h2>Watched from <span class="muted small">· all time</span></h2>${d.ips.length ? `<div class="tablewrap"><table><thead><tr><th>IP address</th><th>Plays</th><th>Latest</th></tr></thead><tbody>
         ${d.ips.map(x => `<tr><td><span class="mono">${esc(x.ip)}</span><div class="meta small">${esc(x.player)}</div></td><td class="num">${x.plays}</td><td class="small muted">${esc(when(x.last))}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted small">None recorded yet.</p>`}</div>
     </div>
 
-    ${R.n ? `<h2>Requests</h2><p class="note" style="margin-top:0">${plural(R.n, "request")} in Seerr · ${R.ready} in the library · ${R.watched} watched${R.ready ? ` (${Math.round(100 * R.watched / R.ready)}%)` : ""}</p>
+    ${R.n ? `<h2>Requests</h2><p class="note" style="margin-top:0">${esc(d.user)} asked for ${plural(R.n, "title")} in Seerr · ${R.ready} ${R.ready === 1 ? "is" : "are"} in the library · ${R.watched} of ${R.ready === 1 ? "it" : "those"} watched${R.ready ? ` (${Math.round(100 * R.watched / R.ready)}%)` : ""}</p>
       <div class="panel"><ul class="list">${R.latest.map(x => `<li><span>${src(x.link, esc(x.title))}</span><span class="meta">${x.watched ? `<span class="good">watched</span>` : x.ready ? "not watched yet" : "not in the library yet"} · ${esc(dayOf(x.when))}</span></li>`).join("")}</ul></div>` : ""}
 
-    <div class="wsec-h"><h2>Latest plays</h2><a href="#stats" class="wlink small" data-whistory="${esc(d.user)}">All of ${esc(d.user)}'s plays</a></div>
+    <div class="wsec-h"><h2>Latest plays <span class="muted small">· all time</span></h2><a href="#stats" class="wlink small" data-whistory="${esc(d.user)}">All of ${esc(d.user)}'s plays</a></div>
     ${h && h.ok ? historyTable(h.rows, { noUser: true }) : ""}`;
 }
 
@@ -1020,11 +1049,12 @@ async function watchTitle() {
   return `${back}
     <div class="whead title">${poster(d.art, "poster xl", d.grp)}<div><p class="muted small" style="margin:0">${kind}</p><h2>${src(emby, esc(d.grp))}</h2>
       <p class="muted small">${T.first ? `First watched ${esc(dayOf(T.first))} · last ${esc(when(T.last))}` : ""}</p>
-      <div class="wfacts"><span><b>${T.plays}</b> ${T.plays === 1 ? "play" : "plays"}</span><span><b>${hrs(T.hours)}</b> watched</span><span><b>${T.viewers}</b> ${T.viewers === 1 ? "person" : "people"}</span></div></div></div>
+      <div class="wfacts"><span>Played <b>${T.plays}</b> ${T.plays === 1 ? "time" : "times"}</span><span><b>${hrs(T.hours)}</b> watched</span><span>by <b>${T.viewers}</b> ${T.viewers === 1 ? "person" : "people"}</span><span class="muted">all time</span></div></div></div>
     <h2>Who watched</h2>
-    <div class="tablewrap"><table><thead><tr><th>Who</th><th>Plays</th><th>Watched</th>${d.via === "livetv" ? "" : "<th>To the end</th>"}<th>Last</th></tr></thead><tbody>
+    <div class="tablewrap"><table><thead><tr><th>Who</th><th>Plays</th><th>Hours</th>${d.via === "livetv" ? "" : `<th title="Plays that reached 90% or more">Watched to the end</th>`}<th>Latest</th></tr></thead><tbody>
       ${d.viewers.map(v => `<tr><td class="nowrap">${avatar(v.user, v.user_id, "avatar sm")}${toPerson(v.user)}</td><td class="num">${v.plays}</td><td class="num">${hrs(v.hours)}</td>${d.via === "livetv" ? "" : `<td class="num">${v.done}</td>`}<td class="small muted">${esc(when(v.last))}</td></tr>`).join("")}</tbody></table></div>
-    ${d.episodes.length ? `<h2>Episodes</h2><div class="tablewrap"><table><thead><tr><th>Episode</th><th>Watched by</th><th>To the end</th></tr></thead><tbody>
+    ${d.episodes.length ? `<h2>Episodes</h2><div class="tablewrap"><table><thead><tr><th>Episode</th><th>Started by</th><th>Finished by</th></tr></thead>
+<tbody>
       ${d.episodes.map(e => `<tr><td>${esc(e.title.replace(d.grp + " ", ""))}</td><td class="small">${e.viewers.map(esc).join(", ")}</td><td class="small">${e.done.length ? e.done.map(esc).join(", ") : `<span class="muted">–</span>`}</td></tr>`).join("")}</tbody></table></div>` : ""}
     <h2>Plays</h2>${h && h.ok ? historyTable(h.rows, { noTitle: true }) : ""}`;
 }
@@ -1080,35 +1110,37 @@ function libraryPanel(L, span) {
   const seg = (k, cls) => Q[k] ? `<span class="${cls}" style="width:${100 * Q[k] / total}%" title="${k}: ${Q[k]}"></span>` : "";
   const parts = [L.series && plural(L.series, "series", "series"), L.episodes && plural(L.episodes, "episode"), L.movies && plural(L.movies, "movie")].filter(Boolean);
   return `<h2 class="first">${parts.join(", ")}</h2><div class="panel lib">
-    ${row("Playback", !P ? `<span class="muted">AIOStreams didn't answer</span>`
+    ${row("Plays well?", !P ? `<span class="muted">AIOStreams didn't answer</span>`
         : P.degraded || P.dead ? [P.degraded && `<span class="meh">${plural(P.degraded, "file")} with missing parts</span>`, P.dead && `<span class="bad">${P.dead} gone from usenet</span>`].filter(Boolean).join(" · ")
-        : `<span class="good">All ${P.files} files complete on usenet</span>`,
+        : `<span class="good">All ${P.files} files are complete on usenet</span>`,
       P && (P.degraded || P.dead)
         ? `${P.items.map(x => `<span class="${x.dead ? "bad" : "meh"}">${src(x.link, esc(x.title))}</span>`).join(" · ")}${P.more ? ` <span class="meta">and ${P.more} more</span>` : ""}
            <br>${[P.degraded && "Missing parts can make playback stutter or stop; Replace swaps them for another release.", P.dead && "Gone ones don't play; AIOStreams has Sonarr/Radarr replace them by itself, Replace does it now."].filter(Boolean).join(" ")} Checked every night by ${at("AIOStreams", "/dashboard/usenet/library", "AIOStreams")}.${oldNote}`
-        : `Checked every night by ${at("AIOStreams", "/dashboard/usenet/library", "AIOStreams")}.${oldNote}`,
+        : `Your files stream from usenet; ${at("AIOStreams", "/dashboard/usenet/library", "AIOStreams")} checks every night that none of their parts went missing.${oldNote}`,
       P && (P.degraded || P.dead) ? `<button class="btn" data-libs="sonarr/replace-broken radarr/replace-broken" data-confirm="replace">Replace ${P.degraded + P.dead}</button>` : "")}
     ${row("Not found yet", M.episodes || M.movies ? [M.episodes && plural(M.episodes, "episode"), M.movies && plural(M.movies, "movie")].filter(Boolean).join(" · ") : `<span class="good">Nothing waiting</span>`,
-      M.episodes || M.movies ? `${t(M.titles)}<br>Aired and monitored, but no release found yet · ${[M.episodes && at("Sonarr", "/wanted/missing", "Sonarr"), M.movies && at("Radarr", "/wanted/missing", "Radarr")].filter(Boolean).join(" · ")}` : "Every aired episode and released movie has a file.",
+      M.episodes || M.movies ? `${t(M.titles)}<br>Already out and wanted, but no release found yet. Sonarr and Radarr keep looking · ${[M.episodes && at("Sonarr", "/wanted/missing", "Sonarr"), M.movies && at("Radarr", "/wanted/missing", "Radarr")].filter(Boolean).join(" · ")}` : "Every aired episode and released movie you follow has a file.",
       M.episodes || M.movies ? `<button class="btn" data-libs="sonarr/search-missing radarr/search-missing">Search now</button>` : "")}
-    ${G ? row("Language", `${G.pct}% ${esc(G.name)}`, G.other ? `${plural(G.other, "file")} without ${esc(G.name)} audio: ${t(G.titles)}` : "",
+    ${G ? row("Language", `${G.pct}% of files have ${esc(G.name)} audio`, G.other ? `${plural(G.other, "file")} without ${esc(G.name)} audio: ${t(G.titles)}` : "",
       G.other ? `<button class="btn" data-libs="sonarr/upgrade-language radarr/upgrade-language">Find ${esc(G.name)}</button>` : "") : ""}
     ${row("Picture", `${pctOf(Q["2160p"])}% in 4K <span class="muted">·</span> ${pctOf(Q.hdr)}% with HDR or Dolby Vision`,
       `${[Q["2160p"] && `${Q["2160p"]} in 4K`, Q["1080p"] && `${Q["1080p"]} in 1080p`, (Q["720p"] + Q.lower) && `${Q["720p"] + Q.lower} below 1080p`].filter(Boolean).join(" · ")}${pictureNote(Q, t)}`,
       Q.dv_only || av1Converted(Q) ? `<button class="btn" data-libs="sonarr/upgrade-hard radarr/upgrade-hard">Look for better</button>` : "")}
-    ${row("Upgrades", `${L.upgrades.done} replaced by a better release <span class="muted">in the last ${span}</span>`,
-      L.upgrades.waiting ? `${L.upgrades.waiting} could still get better (your language in 2160p). Sonarr and Radarr swap them when a release appears · ${at("Sonarr", "/wanted/cutoffunmet", "Sonarr")} · ${at("Radarr", "/wanted/cutoffunmet", "Radarr")}` : "")}
+    ${row("Upgrades", `${L.upgrades.done} ${L.upgrades.done === 1 ? "file" : "files"} swapped for a better release <span class="muted">in the last ${span}</span>`,
+      L.upgrades.waiting ? `${L.upgrades.waiting} could still get better (your language in 4K). Sonarr and Radarr swap them by themselves when such a release appears · ${at("Sonarr", "/wanted/cutoffunmet", "Sonarr")} · ${at("Radarr", "/wanted/cutoffunmet", "Radarr")}` : "")}
+
   </div>`;
 }
 
 async function timeline() {
   const d = await api("/api/activity").catch(() => null);
   if (!d) return null;
-  const names = { request: "Requested", grab: "Grabbed", import: "In library", failed: "Failed", deleted: "Removed", play: "Watched" };
+  const names = { request: "Requested", grab: "Release picked", import: "In library", failed: "Failed", deleted: "Removed", play: "Watched" };
   const day = t => { const w = when(t); return /^(Today|Yesterday)/.test(w) ? w.split(",")[0]
     : new Date(t * 1000).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }); };
   const f = S.tlf || "all";
-  const chips = `<div class="seg" role="group" aria-label="Show" style="margin-bottom:14px">${[["all", "Everything"], ["play", "Watched"], ["library", "Library"]]
+  const chips = `<p class="lead-s">Everything that happened, newest first: requests in Seerr, releases Sonarr and Radarr picked, what landed in the library, and what people watched.</p>
+    <div class="seg" role="group" aria-label="Show" style="margin-bottom:14px">${[["all", "Everything"], ["play", "Watched"], ["library", "Requests and downloads"]]
     .map(([k, n]) => `<button data-tlf="${k}" aria-pressed="${f === k}">${n}</button>`).join("")}</div>`;
   const shown = d.events.filter(e => f === "all" || (f === "play") === (e.kind === "play"));
   let last = "", rows = "";
@@ -1120,7 +1152,7 @@ async function timeline() {
       <span class="body"><span>${src(e.link, esc(e.title))}</span>${e.detail ? `<div class="detail">${esc(e.detail)}</div>` : ""}</span></li>`;
   }
   return chips + (rows ? `<ul class="timeline">${rows}</ul>`
-    : `<div class="empty"><h3>Nothing here yet</h3><p>Requests, grabs and imports from Seerr, Sonarr and Radarr, and what everyone watched, show up here, newest first.</p></div>`);
+    : `<div class="empty"><h3>Nothing here yet</h3><p>Requests, downloads and what everyone watched show up here as they happen.</p></div>`);
 }
 
 // ───────────────────────── settings (also the setup form)
@@ -1144,7 +1176,7 @@ function providerPick(p) {
     <option value="other" ${p.host && !cur ? "selected" : ""}>Another server, typed in</option></select></label>
     <p class="small muted pickinfo" style="margin:-6px 0 12px">${cur ? providerInfo(cur) : ""}</p>`;
 }
-const providerInfo = x => `${esc(x.backbone || "Unknown")} backbone${x.block ? " · pay per GB, good as backup" : ""} · set Connections to your plan's number`;
+const providerInfo = x => `Runs on the ${esc(x.backbone || "unknown")} backbone (the network behind it)${x.block ? " · pay per GB, good as a backup" : ""} · set Connections to the number your plan allows`;
 function indexerPick(x) {
   const cur = CAT.indexers.find(c => c.name === x.preset || (x.url && c.url === x.url));
   return `<label class="field"><span>Indexer</span><select data-pick="indexer">
@@ -1177,7 +1209,7 @@ function providerEntry(p = {}, i = 0, open = true) {
     <div class="row"><label class="field"><span>Username</span><input type="text" name="username" value="${esc(p.username || "")}" autocomplete="off"></label>
       <label class="field"><span>Password</span><input type="password" name="password" placeholder="${p.has_password ? SAVED : ""}" autocomplete="new-password"></label></div>
     <label class="check"><input type="checkbox" name="tls" ${p.tls === false ? "" : "checked"}><span>SSL/TLS</span></label>
-    <label class="check"><input type="checkbox" name="isBackup" ${p.isBackup ? "checked" : ""}><span>Backup only <span class="muted small">· only asked for what the others miss</span></span></label>
+    <label class="check"><input type="checkbox" name="isBackup" ${p.isBackup ? "checked" : ""}><span>Backup only <span class="muted small">· only asked for pieces the others are missing</span></span></label>
     <button type="button" class="btn" data-test="usenet">Test login</button><p class="result"></p></div></details>`;
 }
 function indexerEntry(x = {}, open = true) {
@@ -1238,27 +1270,27 @@ function settingsForm(s) {
       <label class="field"><span>Password</span><input type="password" name="admin_password" autocomplete="new-password" minlength="8" placeholder="8+ characters, no comma"></label></div>
       ${tzField(s.tz)}` },
     tz: { title: "Time zone", lead: "For schedules, logs and the nightly backup.", body: tzField(s.tz) },
-    usenet: { title: "Usenet providers", lead: "Where the files come from.",
-      more: "A second provider on a different backbone fills articles the first one is missing. Mark a pay-per-GB block account as backup, so it's only asked for those.",
+    usenet: { title: "Usenet providers", lead: "The paid services your movies and shows are streamed from.",
+      more: "A second provider on a different backbone fills in the pieces (articles) the first one is missing. Mark a pay-per-GB block account as backup, so it's only asked for those.",
       body: `<label class="check" data-balance><input type="checkbox" name="usenet_balanced" ${s.usenet_balanced !== false ? "checked" : ""}><span>Use the main providers together <span class="muted small">· load-balanced</span></span></label>
-      <p class="small muted" data-balance style="margin:-8px 0 14px">${"On: AIOStreams spreads downloads across them by speed and free connections. Off: the first one does the work; the next steps in only when it misses an article or fails."}</p>
+      <p class="small muted" data-balance style="margin:-8px 0 14px">${"On: AIOStreams spreads downloads across them by speed and free connections. Off: the first one does the work; the next one steps in only when the first is missing a piece or fails."}</p>
       <div id="providers">${(s.providers.length ? s.providers : [{}]).map((p, i) => providerEntry(p, i, !p.host)).join("")}</div>
       <p class="small" id="backbonenote"></p>
       <div class="adder"><button type="button" class="btn" id="addprov">Add a provider</button></div>` },
-    indexers: { title: "Indexers", lead: "Where releases are found.",
+    indexers: { title: "Indexers", lead: "Search sites that list what's on usenet. Sonarr and Radarr find releases through them.",
       more: "They go into Prowlarr, which Sonarr and Radarr search. Removing one here doesn't remove it from Prowlarr.",
       body: `<div id="indexers">${s.indexers.map(x => indexerEntry(x, !x.url)).join("")}</div><div class="adder"><button type="button" class="btn" id="addidx">Add an indexer</button></div>` },
-    language: { title: "Audio language", lead: "Releases in this language beat better picture quality.",
-      more: "German 1080p beats English 2160p. Between two German releases, 2160p wins.",
-      body: `<label class="field"><span>Language</span><select name="language"><option value="none">None, rank by picture quality</option>
+    language: { title: "Audio language", lead: "Releases with this audio language are preferred, even over a sharper picture.",
+      more: "For example, German in 1080p beats English in 4K (2160p). Between two German releases, the 4K one wins.",
+      body: `<label class="field"><span>Language</span><select name="language"><option value="none">No preference, the best picture wins</option>
         ${s.languages.map(l => `<option ${l === s.language ? "selected" : ""}>${l}</option>`).join("")}</select></label>
       <label class="check" data-lang><input type="checkbox" name="require_language" ${s.require_language ? "checked" : ""}><span>Only grab releases in this language</span></label>
-      <label class="field" data-wait><span>Otherwise wait for it (minutes)</span><input type="number" min="0" name="wait_minutes" value="${s.wait_minutes}"></label>` },
-    subtitles: { title: "Subtitles", lead: "Podnapisi and Gestdown are always on.",
+      <label class="field" data-wait><span>Minutes to wait for this language before taking another</span><input type="number" min="0" name="wait_minutes" value="${s.wait_minutes}"></label>` },
+    subtitles: { title: "Subtitles", lead: "Bazarr fetches subtitles by itself from Podnapisi and Gestdown. An account adds more.",
       more: "An OpenSubtitles.com account adds the biggest catalogue, about 20 downloads a day for free.",
       body: `<div class="row"><label class="field"><span>OpenSubtitles.com username</span><input type="text" name="opensubtitles_user" value="${esc(s.opensubtitles_user)}" autocomplete="off" placeholder="optional"></label>
       <label class="field"><span>Password</span><input type="password" name="opensubtitles_pass" placeholder="${s.has_opensubtitles_pass ? SAVED : ""}" autocomplete="new-password"></label></div>` },
-    livetv: { title: "Live TV", lead: "IPTV channels with a programme guide in Emby.",
+    livetv: { title: "Live TV", lead: "Watch the channels of an IPTV subscription in Emby, with a programme guide.",
       more: "Dispatcharr turns your IPTV subscription into channels; you pick which ones in Dispatcharr. Watching Live TV in Emby needs Emby Premiere.",
       body: `<label class="check"><input type="checkbox" name="iptv" ${s.iptv ? "checked" : ""}><span>Use Live TV</span></label>
       <div id="tvfields" class="${s.iptv ? "" : "hidden"}">
@@ -1270,7 +1302,7 @@ function settingsForm(s) {
         <div class="row" data-tv="xtream"><label class="field"><span>Username</span><input type="text" name="iptv_user" value="${esc(s.iptv_user)}" autocomplete="off"></label>
           <label class="field"><span>Password</span><input type="password" name="iptv_pass" placeholder="${s.has_iptv_pass ? SAVED : ""}" autocomplete="new-password"></label></div>
         <label class="field" data-tv="m3u"><span>Guide (XMLTV) URL</span><input type="url" name="iptv_epg_url" value="${esc(s.iptv_epg_url)}" placeholder="optional"></label>
-        <label class="field" data-tv="xtream m3u"><span>Streams at once</span><input type="number" min="1" name="iptv_max_streams" value="${s.iptv_max_streams}"></label>
+        <label class="field" data-tv="xtream m3u"><span>Streams your plan allows at once</span><input type="number" min="1" name="iptv_max_streams" value="${s.iptv_max_streams}"></label>
         <div data-tv="xtream m3u"><button type="button" class="btn" data-test="iptv">Test provider</button><p class="result"></p></div>
         ${s.setup ? "" : `<div class="entry" style="margin-top:6px">
           <div class="entry-head"><h3>Live TV in Dojo</h3>${s.has_dispatcharr_key ? `<span class="good small">Connected</span>` : ""}</div>
@@ -1281,25 +1313,25 @@ function settingsForm(s) {
               <label class="field"><span>Password</span><input type="password" data-d="pass" autocomplete="new-password"></label></div>
             <button type="button" class="btn" data-dconnect>Connect</button><p class="result"></p></div></div>`}
       </div>` },
-    notify: { title: "Notifications", lead: s.setup ? "A Discord message on grabs, imports and problems." : "On this phone or computer, and in Discord.",
+    notify: { title: "Notifications", lead: s.setup ? "A Discord message when something is downloaded, arrives in the library, or breaks." : "Get told when something happens: on this phone or computer, and in Discord.",
       body: `${s.setup ? "" : `<div class="entry" id="pushbox"><div class="entry-head"><h3>On this device</h3><span class="small" data-pstate></span></div>
         <div data-pbody><p class="lead-s muted">Looking…</p></div></div>`}
       <label class="field"><span>Discord webhook</span><input type="url" name="discord_webhook" value="${esc(s.discord_webhook)}" placeholder="https://discord.com/api/webhooks/…"></label>` },
-    remote: { title: "Away from home", lead: "HTTPS addresses for Emby, Seerr and AIOStreams.",
+    remote: { title: "Away from home", lead: "Use Emby, Seerr and AIOStreams outside your home, over secure (HTTPS) addresses on your own domain.",
       more: "They become emby., request. and stream. under your domain. Point those names at your home and forward ports 80 and 443 to this machine. Dojo stays home-only.",
       body: `<div class="row"><label class="field"><span>Domain</span><input type="text" name="domain" value="${esc(s.domain)}" placeholder="example.com"></label>
       <label class="field"><span>E-mail for certificate notices</span><input type="email" name="acme_email" value="${esc(s.acme_email)}"></label></div>
       <label class="check"><input type="checkbox" name="dojo_https" ${s.dojo_https ? "checked" : ""}><span>Dojo too, at dojo.<i>domain</i> — home network only</span></label>
       <p class="small muted" style="margin:-6px 0 14px">An HTTPS address for Dojo, so phones can install it as a full app. It answers only devices on your home network; from the internet it refuses. It needs the same public DNS record as the others (for its certificate) and, at home, a rewrite of the name to this machine.</p>
       <button type="button" class="btn" data-test="domain">Check DNS</button><p class="result"></p>` },
-    updates: { title: "Security updates", lead: "Debian installs them by itself every night.",
+    updates: { title: "Security updates", lead: "The server's operating system (Debian) installs security fixes by itself every night.",
       more: "Only security fixes, from Debian. Docker is left out: it updates together with ninjarr, because updating it restarts every container. Some fixes (the Linux kernel) only take effect after a restart.",
-      body: `<label class="check"><input type="checkbox" name="auto_reboot" ${s.auto_reboot ? "checked" : ""}><span>Restart at about 04:45 when an update needs it</span></label>
-      <p class="small muted" style="margin:-6px 0 14px">Off: Home tells you when a restart is due, with a Restart now button.</p>` },
-    backup: { title: "Backups", lead: "Nightly at about 04:30, on this machine's disk.",
-      more: "Download one now and then from System, so a copy lives somewhere else.",
+      body: `<label class="check"><input type="checkbox" name="auto_reboot" ${s.auto_reboot ? "checked" : ""}><span>Restart the server at about 04:45 when an update needs it</span></label>
+      <p class="small muted" style="margin:-6px 0 14px">Off: Home tells you when a restart is due, with a Restart now button. Streams stop for about a minute during a restart.</p>` },
+    backup: { title: "Backups", lead: "A copy of every app's settings and data, nightly at about 04:30, on this machine's disk.",
+      more: "Your movies and shows aren't in it: they stream from usenet. Download a backup now and then from System, so a copy lives somewhere else.",
       body: `<label class="check"><input type="checkbox" name="backup_on" ${s.backup_schedule !== "off" ? "checked" : ""}><span>Back up every night</span></label>
-      <label class="field" style="max-width:220px"><span>Keep the last</span><input type="number" min="1" max="60" name="backup_keep" value="${s.backup_keep}"></label>` },
+      <label class="field" style="max-width:260px"><span>How many backups to keep</span><input type="number" min="1" max="60" name="backup_keep" value="${s.backup_keep}"></label>` },
   };
 }
 const leadP = x => x.lead ? `<p class="lead-s">${x.lead}${x.more ? info(x.more) : ""}</p>` : "";
@@ -1412,13 +1444,13 @@ function summaries(c) {
     tz: esc((c.tz || "").replace(/_/g, " ")),
     usenet: prov.length ? `${esc(main.map(pname).join(", ") || "Backup only")}${main.length ? ` · ${conns} connections` : ""}${main.length > 1 ? (c.usenet_balanced ? " · load-balanced" : " · in order") : ""}${bk.length ? ` · backup ${esc(bk.map(pname).join(", "))}` : ""}` : none,
     indexers: idx.length ? esc(idx.map(x => x.name || x.url).join(", ")) : none,
-    language: c.language === "none" ? "None, picture quality decides" : c.require_language ? `${esc(c.language)} only` : `${esc(c.language)} first · waits ${c.wait_minutes || 0} min`,
+    language: c.language === "none" ? "No preference, the best picture wins" : c.require_language ? `${esc(c.language)} only` : `${esc(c.language)} preferred · waits ${c.wait_minutes || 0} min for it`,
     subtitles: `Podnapisi, Gestdown${c.opensubtitles_user ? ", OpenSubtitles.com" : ""}`,
     livetv: c.iptv ? `On · ${{ xtream: "Xtream Codes", m3u: "M3U playlist" }[c.iptv_type] || "managed in Dispatcharr"}` : "Off",
     notify: [S.pushOn ? "This device" : "", c.discord_webhook ? "Discord" : ""].filter(Boolean).join(" · ") || "Off",
     remote: c.domain ? esc(c.domain) : "Home network only",
     backup: c.backup_schedule === "off" ? `<span class="meh">Off</span>` : `Nightly · keeps ${esc(c.backup_keep)}`,
-    updates: c.auto_reboot ? "Automatic · restarts at 04:45 when needed" : "Automatic · you restart when needed",
+    updates: c.auto_reboot ? "Automatic · restarts by itself at 04:45 when needed" : "Automatic · you restart when Home asks",
   };
 }
 const SECTIONS = ["usenet", "indexers", "language", "subtitles", "livetv", "remote", "notify", "backup", "updates", "tz"];
@@ -1432,7 +1464,7 @@ async function pageSettings() {
   el.innerHTML = `<div class="settings">
     <nav class="snav" aria-label="Settings sections">${SECTIONS.map(k => `<a href="#settings" data-go="${k}">${f[k].title}</a>`).join("")}<a href="#settings" data-go="account">Account</a></nav>
     <div><form id="sf" autocomplete="off">${SECTIONS.map(fold).join("")}</form>
-      <div class="fold static" id="sec-account"><div class="head"><div><h3>Account</h3><div class="sum">${esc(s.admin_user)} · change it on the VM with <code>./bootstrap.sh reconfigure</code></div></div>
+      <div class="fold static" id="sec-account"><div class="head"><div><h3>Account</h3><div class="sum">Signed in as ${esc(s.admin_user)} · to change the login, run <code>./bootstrap.sh reconfigure</code> on the server</div></div>
         <button type="button" class="btn" id="logout2">Sign out</button></div></div>
     </div></div>
     <div class="savebar" id="savebar"><div class="inner"><span class="msg" id="smsg"></span>
@@ -1447,7 +1479,8 @@ async function pageSettings() {
     const n = Object.keys(c).filter(k => JSON.stringify(c[k] ?? "") !== JSON.stringify(base[k] ?? "")).length;
     S.dirty = n > 0;
     $("#savebar").classList.toggle("show", S.dirty);
-    $("#smsg").innerHTML = S.dirty ? `${plural(n, "unsaved change")}<small>Applying takes about a minute.</small>` : "";
+    $("#smsg").innerHTML = S.dirty ? `${plural(n, "unsaved change")}<small>Saving sets up the apps again; takes about a minute.</small>` : "";
+
   };
   root.addEventListener("input", update); root.addEventListener("change", update); update();
   bindPush($("#pushbox", root), update);
@@ -1564,6 +1597,68 @@ function newsPanel(n, cur) {
   </div>`;
 }
 
+// Google Drive: an encrypted copy of every backup (lib/drive.sh). Connecting runs Google's sign-in
+// through the host: Google sends the browser to 127.0.0.1 afterwards, which doesn't load on this
+// device, and that page's address (it holds the sign-in code) is pasted back here.
+function driveSignin(auth) {
+  return `<ol class="dsteps">
+      <li><a class="btn primary" href="${esc(auth.url)}" target="_blank" rel="noopener">Sign in with Google</a> and allow access. ninjarr only gets to see the files it puts there.</li>
+      <li>Your browser then ends on a page that doesn't load, at <code>127.0.0.1</code>. That's expected: copy that page's whole address from the address bar.</li>
+      <li>Paste it here: <span class="paste"><input type="url" id="drivecode" placeholder="http://127.0.0.1:53682/?state=…&amp;code=…" autocomplete="off" spellcheck="false">
+        <button class="btn primary" id="drivefinish">Finish</button></span></li>
+    </ol>
+    <p class="small muted">The link works until ${esc(when(auth.until))}. <a href="#" id="driveagain" class="muted">Start over</a></p>`;
+}
+function drivePanel(dr, auth) {
+  if (auth) return `<div class="panel drive"><div class="task"><div><h3>Connect Google Drive</h3>${driveSignin(auth)}</div></div></div>`;
+  if (!dr) return `<div class="panel drive"><div class="task"><div><h3>Google Drive</h3>
+      <p>Keep a copy of every backup on your Google Drive, encrypted with a passphrase only you have. If this machine is lost, your setup isn't.</p></div>
+      <div class="actions"><button class="btn" id="driveconnect">Connect</button></div></div></div>`;
+  const state = dr.ok === true ? `<span class="good">Every backup is copied there${dr.encrypted ? ", encrypted" : ""}.</span> The last copy is from ${esc(when(dr.last_ok))}.`
+    : dr.ok === false ? `<span class="meh">The last copy failed: ${esc(dr.message)}</span>${dr.last_ok ? ` The last good one is from ${esc(when(dr.last_ok))}.` : ""}`
+    : `Connected. The next backup is copied there${dr.encrypted ? ", encrypted" : ""}.`;
+  return `<div class="panel drive"><div class="task"><div><h3>Google Drive <span class="muted small" style="font-weight:400">folder ${esc(dr.folder)}</span></h3><p>${state}</p></div>
+      <div class="actions">${dr.has_passphrase ? `<button class="btn plain" id="drivepass">Passphrase</button>` : ""}<button class="btn plain danger" id="driveoff">Disconnect</button></div></div>
+    ${dr.files.length ? `<ul class="list blist">${dr.files.map(x => `
+      <li><span><span class="when">${esc(when(x.mtime))}</span><span class="size">on Drive</span></span>
+      <span class="actions"><button class="btn plain danger" data-drive-restore="${esc(x.name)}" data-when="${esc(when(x.mtime))}">Restore</button></span></li>`).join("")}</ul>` : ""}</div>
+    ${dr.has_passphrase ? `<p class="note">Restoring a copy from Drive needs its passphrase. Keep it in your password manager: on a new machine it's the only way to open them.</p>` : ""}`;
+}
+
+function driveWire(dr, after = pageSystem) {
+  const c = $("#driveconnect"), again = $("#driveagain"), fin = $("#drivefinish"), off = $("#driveoff"), pass = $("#drivepass");
+  const connect = async () => { const ok = await quietJob("drive-connect"); if (!ok) toast("Couldn't start Google's sign-in. See .ninjarr-backup.log on the machine.", "fail"); after(); };
+  if (c) c.onclick = () => { c.disabled = true; c.textContent = "Starting…"; connect(); };
+  if (again) again.onclick = e => { e.preventDefault(); connect(); };
+  if (fin) fin.onclick = async () => {
+    const url = $("#drivecode").value.trim();
+    if (!url) { toast("Paste the address from after the sign-in first.", "fail"); return; }
+    fin.disabled = true;
+    const d = await api("/api/drive/code", { method: "POST", body: { url } }).catch(() => ({ ok: false }));
+    fin.disabled = false;
+    if (!d.ok) { toast(d.message || "That didn't work.", "fail"); return; }
+    openJob(d.id, "Connecting Google Drive", () => after());
+    if (after === pageSystem) watchJobs();
+  };
+  if (pass) pass.onclick = async () => {
+    const d = await api("/api/drive/passphrase").catch(() => ({}));
+    await ask({ title: "Passphrase for the backups on Drive", ok: "Done",
+      body: `${d.passphrase || "?"}\n\nRestoring a copy from Google Drive needs it. Without it they can't be opened, so keep it in your password manager.` });
+  };
+  if (off) off.onclick = async () => {
+    if (!(await ask({ title: "Disconnect Google Drive?", ok: "Disconnect",
+        body: "New backups stay on this machine only. The copies already on Drive stay there, and the passphrase stays in ninjarr.env." }))) return;
+    const ok = await quietJob("drive-off");
+    toast(ok ? "Google Drive disconnected" : "Couldn't disconnect.", ok ? "ok" : "fail");
+    pageSystem();
+  };
+  document.querySelectorAll("[data-drive-restore]").forEach(x => x.onclick = async () => {
+    if (await ask({ title: `Restore the backup from ${x.dataset.when}?`, ok: "Restore",
+      body: "It's downloaded from Google Drive and decrypted, then every app goes back to that moment. Your current data is kept on the VM. The stack, Dojo included, restarts for a minute or two." }))
+      runJob(`restore-drive ${x.dataset.driveRestore}`);
+  });
+}
+
 async function pageSystem() {
   const el = $("#page");
   $("#pact").innerHTML = `<button class="btn primary" id="backupnow">Back up now</button>`;
@@ -1577,6 +1672,7 @@ async function pageSystem() {
   const upd = v.update_available;
   const images = Object.entries(v.images || {});
   const list = b.backups || [];
+  const dr = b.drive;
   el.innerHTML = `
     <div class="card"><div><h3>ninjarr ${esc(v.ninjarr || "?")}${v.commit ? ` <span class="muted small" style="font-weight:400">${esc(v.commit)}</span>` : ""}</h3>
       <div class="small">${upd === true ? `<span class="good">A newer version is available</span>` : upd === false ? `<span class="muted">Up to date · </span><a href="#system" id="recheck" class="muted">check now</a>`
@@ -1592,11 +1688,11 @@ async function pageSystem() {
         <span class="muted small">${a.newest.replace(/-ls\d+$/, "") === a.running.replace(/-ls\d+$/, "") ? "a rebuild of the version this runs" : `this runs ${esc(a.running)}`}</span></span>
         <button class="btn plain" data-try="${esc(a.app)}" data-tag="${esc(a.newest)}">Try it</button></li>`).join("")}</ul>
       <p class="small muted" style="margin:10px 0 0">ninjarr moves to new versions in its own updates once they're tested. <b>Try it</b> doesn't wait: it saves the app's data, moves it to the new version and runs the full check — if anything fails, the old version and its data come back by themselves.</p></div>` : ""}
-    <p class="note">Updating backs up first, then moves every app to the versions tested with the new release.</p>
-    ${images.length ? `<details class="versions"><summary>${images.length} apps on their tested versions</summary>
+    <p class="note">Updating makes a backup first, then moves ninjarr and every app to the versions tested together for the new release.</p>
+    ${images.length ? `<details class="versions"><summary>App versions in use (${images.length} apps, all tested together)</summary>
       <div class="tablewrap"><table><tbody>${images.map(([k, t]) => `<tr><td>${esc(k)}</td><td class="tag">${esc(t)}</td></tr>`).join("")}</tbody></table></div></details>` : ""}
 
-    <h2>This machine</h2>${machineCard(h)}
+    <h2>The server</h2>${machineCard(h)}
 
     <h2>Backups</h2>
     ${b.visible === false ? `<div class="empty"><h3>Backups are kept elsewhere</h3><p>They go to a folder outside ninjarr's data folder, so Dojo can't list them.</p></div>`
@@ -1605,13 +1701,14 @@ async function pageSystem() {
         <span class="actions"><a class="btn quiet" href="/api/backups/${esc(x.name)}" download>Download</a>
         <button class="btn plain danger" data-restore="${esc(x.name)}" data-when="${esc(when(x.mtime))}">Restore</button>
         <button class="btn plain danger" data-delete="${esc(x.name)}" data-when="${esc(when(x.mtime))}">Delete</button></span></li>`).join("")}</ul></div>
-        <p class="note">${b.schedule === "off" ? `The nightly backup is off. Turn it on in Settings.` : `Nightly, the last ${b.keep} are kept.`} They live on this machine, so download one now and then.</p>`
+        <p class="note">Each backup holds every app's settings and data (not the movies and shows themselves). ${b.schedule === "off" ? `The nightly backup is off; turn it on in Settings → Backups.` : `One is made every night and the last ${b.keep} are kept.`} ${dr ? "Each one is also copied, encrypted, to Google Drive." : "They're stored on this server, so download one now and then to keep a copy somewhere else, or connect Google Drive below."}</p>`
       : `<div class="empty"><h3>No backups yet</h3><p>Make the first one now. After that, one is made every night.</p></div>`}
+    ${drivePanel(dr, b.drive_auth)}
 
     <h2>Maintenance</h2>
     <div class="panel">
-      <div class="task"><div><h3>Re-apply all settings</h3><p>Sets every app up again from ninjarr.env. Safe, and fixes most drift.</p></div><div class="actions"><button class="btn" data-job="wire">Re-apply</button></div></div>
-      <div class="task"><div><h3>Run the full check</h3><p>Every check from <code>./bootstrap.sh doctor</code>, with the log.</p></div><div class="actions"><button class="btn" data-job="doctor">Run</button></div></div>
+      <div class="task"><div><h3>Re-apply all settings</h3><p>Writes your ninjarr settings into every app again. Safe to run any time; it fixes most problems caused by a setting changed by hand inside an app.</p></div><div class="actions"><button class="btn" data-job="wire">Re-apply</button></div></div>
+      <div class="task"><div><h3>Run the full check</h3><p>Tests every app and the connections between them, and shows the log. The same as <code>./bootstrap.sh doctor</code> on the server.</p></div><div class="actions"><button class="btn" data-job="doctor">Run</button></div></div>
     </div>`;
   el.querySelectorAll("[data-job]").forEach(x => x.onclick = async () => {
     if (x.dataset.job === "update" && upd === true && v.news) {
@@ -1634,6 +1731,7 @@ async function pageSystem() {
         body: `${name} returns to ${x.dataset.from} with its data from before the try. Anything that changed in ${name} since then is lost; the other apps keep everything.` }))) return;
     runJob(`revert-version ${x.dataset.revert}`);
   });
+  driveWire(dr);
   el.querySelectorAll("[data-delete]").forEach(x => x.onclick = async () => {
     if (!(await ask({ title: `Delete the backup from ${x.dataset.when}?`, ok: "Delete", body: "It can't be brought back. Your other backups and the running stack stay as they are." }))) return;
     x.disabled = true;
@@ -1649,13 +1747,14 @@ async function pageSystem() {
 }
 
 function machineCard(h) {
-  if (!h) return `<div class="card"><div><h3>No status yet</h3><div class="small muted">Updating ninjarr sets up automatic security updates and this status.</div></div>
+  if (!h) return `<div class="card"><div><h3>No status yet</h3><div class="small muted">Updating ninjarr sets up automatic security updates and this status of the server.</div></div>
     <button class="btn" data-job="update">Update</button></div>`;
   const days = Math.floor(h.uptime_s / 86400);
   const lc = t => /^(Today|Yesterday)/.test(t) ? t[0].toLowerCase() + t.slice(1) : t;
   const last = h.last_update ? `last updated ${lc(when(h.last_update))}${h.last_update_packages.length ? ` (${plural(h.last_update_packages.length, "package")})` : ""}` : "nothing needed so far";
   return `<div class="card"><div><h3>${esc(h.os)}</h3>
-      <div class="small muted">Running for ${days ? plural(days, "day") : "less than a day"} · kernel ${esc(h.kernel)}</div>
+      <div class="small muted">Running without a restart for ${days ? plural(days, "day") : "less than a day"} · kernel ${esc(h.kernel)}</div>
+
       <div class="small" style="margin-top:6px">${h.auto ? `<span class="good">Security updates install automatically</span> · ${last}` : `<span class="meh">Security updates aren't automatic yet</span>`}</div>
       ${h.reboot_required ? `<div class="small meh" style="margin-top:4px">A restart finishes a security update${h.reboot_packages.length ? ` (${esc(h.reboot_packages.join(", "))})` : ""}${h.auto_reboot ? ", tonight at 04:45" : ""}.</div>` : ""}</div>
     ${h.reboot_required ? `<button class="btn primary" data-job="reboot">Restart now</button>` : h.auto ? "" : `<button class="btn" data-job="update">Set up</button>`}</div>`;
@@ -1673,6 +1772,7 @@ async function setupWizard() {
   document.title = "Set up ninjarr · Dojo";
   app.innerHTML = `<div class="setupwrap">${brand()}<h1>Set up ninjarr</h1>
     <p class="lead">Six short steps. Test each login as you go; nothing is applied until you build.</p>
+    <p class="small muted fromdrive">Moving to a new machine? <a href="#" id="fromdrive">Restore a backup from Google Drive</a> instead.</p>
     <div class="steps">${STEPS.map(([id, n], i) => `<span data-s="${id}">${i + 1}. ${n}</span>`).join("")}</div>
     <form id="wf">${STEPS.map(([id]) => `<div data-step="${id}" class="hidden">${bodies[id]}</div>`).join("")}</form>
     <div class="nav-steps"><button class="btn" id="back">Back</button><button class="btn primary" id="next">Next</button></div></div>`;
@@ -1706,6 +1806,7 @@ async function setupWizard() {
     document.querySelectorAll(".toast.t-fail").forEach(t => t.remove());
     i = Math.min(STEPS.length - 1, i + 1); show();
   };
+  $("#fromdrive").onclick = e => { e.preventDefault(); setupRestore(); };
   $("#build").onclick = async () => {
     $("#build").disabled = true; $("#berr").textContent = "";
     const r = await api("/api/settings", { method: "POST", body: collect(root) });
@@ -1719,6 +1820,52 @@ async function setupWizard() {
     });
   };
   show();
+}
+
+// First-run setup on a new machine: everything back from a backup on Google Drive (lib/drive.sh)
+// instead of the questions. The backup brings ninjarr.env, so the login is the one it had.
+async function setupRestore() {
+  const d = await api("/api/drive/setup").catch(() => ({}));
+  const files = d.files || [];
+  document.title = "Restore from Google Drive · Dojo";
+  const body = d.auth ? `<h2>Connect Google Drive</h2>${driveSignin(d.auth)}`
+    : !d.connected ? `<h2>Connect Google Drive</h2>
+        <p class="lead-s">Sign in with the Google account your old machine copied its backups to. ninjarr only sees the files it put there.</p>
+        <button type="button" class="btn primary" id="driveconnect">Connect</button><p></p>`
+    : !files.length ? `<h2>No backups found</h2>
+        <p class="lead-s">This Google account has no ninjarr backups in its <b>ninjarr-backups</b> folder. Maybe they're on another account?</p>
+        <button type="button" class="btn" id="driveconnect">Use another account</button><p></p>`
+    : `<h2>Pick a backup</h2>
+        <div class="panel"><ul class="list blist">${files.map((x, i) => `<li><label class="pick"><input type="radio" name="bk" value="${esc(x.name)}"${i ? "" : " checked"}>
+          <span class="when">${esc(when(x.mtime))}</span>${i ? "" : `<span class="size">newest</span>`}</label></li>`).join("")}</ul></div>
+        <label class="field" style="margin-top:16px"><span>Passphrase for the backups on Drive</span><input type="password" id="drivepw" autocomplete="off"></label>
+        <p class="lead-s">Every app comes back as it was in that backup: settings, library, watch history, and the same login. This takes 5 to 15 minutes; the log shows here and in your terminal.</p>
+        <p class="result fail" id="rerr"></p><button type="button" class="btn primary" id="restore">Restore my stack</button>
+        <a href="#" id="driveagain2" class="muted small" style="margin-left:12px">Use another account</a><p></p>`;
+  app.innerHTML = `<div class="setupwrap">${brand()}<h1>Restore from Google Drive</h1>
+    <p class="lead">Your stack exactly as it was, from the encrypted copy your old machine kept on Google Drive.</p>
+    <section class="section drive">${body}</section>
+    <p class="small"><a href="#" id="tonew" class="muted">Set up from scratch instead</a></p></div>`;
+  $("#tonew").onclick = e => { e.preventDefault(); setupWizard(); };
+  driveWire(null, setupRestore);
+  const again2 = $("#driveagain2");
+  if (again2) again2.onclick = async e => { e.preventDefault(); await quietJob("drive-connect"); setupRestore(); };
+  const go = $("#restore");
+  if (go) go.onclick = async () => {
+    const name = (document.querySelector("[name=bk]:checked") || {}).value, passphrase = $("#drivepw").value;
+    $("#rerr").textContent = "";
+    if (!passphrase && name.endsWith(".gpg")) { $("#rerr").textContent = "Type the passphrase first."; return; }
+    go.disabled = true;
+    const r = await api("/api/drive/restore", { method: "POST", body: { name, passphrase } }).catch(() => ({ ok: false }));
+    if (!r.ok) { $("#rerr").textContent = r.message || "That didn't start."; go.disabled = false; return; }
+    openJob(r.id, "Restoring your stack", st => {
+      go.disabled = false;
+      if (st === "ok") {
+        $("#jobstate").innerHTML = `<span class="state-ok">Done. Close this and sign in with the login from your backup.</span>`;
+        $("#jobclose").onclick = () => { $("#jobdlg").close(); boot(); };
+      }
+    });
+  };
 }
 
 boot();

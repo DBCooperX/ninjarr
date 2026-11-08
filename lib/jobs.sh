@@ -19,13 +19,16 @@ job_command() { # job_command LINE — prints the bootstrap.sh arguments for an 
       # an app ninjarr runs, and a version name (letters, digits, dots, dashes)
       [[ " ${TRY_APPS[*]} " == *" ${arg:-x} "* && "${arg2:-}" =~ ^[A-Za-z0-9._-]{1,64}$ ]] && echo "try-version $arg $arg2" ;;
     revert-version) [[ " ${TRY_APPS[*]} " == *" ${arg:-x} "* && -z "${arg2:-}" ]] && echo "revert-version $arg" ;;
-    wire|update|backup|doctor|reboot|fix-imports) [[ -z "${arg:-}" && -z "${arg2:-}" ]] && echo "$cmd" ;;
+    wire|update|backup|doctor|reboot|fix-imports|drive-connect|drive-finish|drive-off) [[ -z "${arg:-}" && -z "${arg2:-}" ]] && echo "$cmd" ;;
     restart) [[ " $JOB_SERVICES " == *" ${arg:-x} "* && -z "${arg2:-}" ]] && echo "restart $arg" ;;
     delete-backup)
       [[ -z "${arg2:-}" && "${arg:-}" =~ ^ninjarr-[0-9]{8}-[0-9]{6}\.tar\.gz$ ]] && [[ -f "$(backup_dir)/$arg" ]] && echo "delete-backup $arg" ;;
     restore)
       # only a backup file ninjarr wrote, by name (bootstrap.sh finds it in the backup folder)
       [[ -z "${arg2:-}" && "${arg:-}" =~ ^ninjarr-[0-9]{8}-[0-9]{6}\.tar\.gz$ ]] && [[ -f "$(backup_dir)/$arg" ]] && echo "restore $arg" ;;
+    restore-drive)
+      # one of ninjarr's backups on Google Drive, by name
+      [[ -z "${arg2:-}" && "${arg:-}" =~ $DRIVE_NAME_RE ]] && echo "restore-drive $arg" ;;
     settings) [[ -z "${arg:-}" ]] && echo settings ;;
     *) return 1 ;;
   esac

@@ -38,7 +38,7 @@ backup() {
   [[ -d "$NINJARR_DATA/appdata" ]] || die "nothing to back up: $NINJARR_DATA/appdata doesn't exist"
   command -v sqlite3 >/dev/null || die "sqlite3 is missing — run ./bootstrap.sh once, it installs it"
   dir=$(backup_dir); mkdir -p "$dir"; chmod 700 "$dir"
-  rm -rf "$dir"/.staging.* "$dir"/ninjarr-*.tar.gz.part   # leftovers of an interrupted run
+  rm -rf "$dir"/.staging.* "$dir"/ninjarr-*.tar.gz.part "$dir"/.ninjarr-restore-*   # leftovers of an interrupted run
   # Make room first: the oldest go before the new one is written, not after. Deleting only
   # afterwards needs space for one backup more than BACKUP_KEEP (plus the staging copy), so on
   # a disk sized for BACKUP_KEEP the next backup failed for lack of space — and as it stopped
@@ -99,10 +99,15 @@ backup() {
 
 # restore FILE — puts a backup's ninjarr.env and app data in place; the caller then builds as usual
 restore() {
-  local file=$1 tmp ts
+  local file=$1 tmp ts orig=$1 dec=""
   step "Restoring the backup"
   [[ -f "$file" ]] || die "no such backup: $file"
-  tar -tzf "$file" ./ninjarr.env >/dev/null 2>&1 || die "$file isn't a ninjarr backup (no ninjarr.env inside)"
+  # one from Google Drive (lib/drive.sh) is encrypted: unpacked from a decrypted copy next to it
+  if [[ "$file" == *.gpg ]]; then
+    dec=$(mktemp "$(dirname "$file")/.ninjarr-restore-XXXX")
+    drive_decrypt "$file" "$dec"; file=$dec
+  fi
+  tar -tzf "$file" ./ninjarr.env >/dev/null 2>&1 || { rm -f "$dec"; die "$orig isn't a ninjarr backup (no ninjarr.env inside)"; }
   ts=$(date +%Y%m%d-%H%M%S)
   tmp=$(mktemp -d)
   tar -C "$tmp" -xzf "$file" ./ninjarr.env ./ninjarr-version 2>/dev/null || tar -C "$tmp" -xzf "$file" ./ninjarr.env
@@ -131,8 +136,9 @@ restore() {
   (( kept )) && info "the current data is kept as appdata/library.before-restore-$ts — delete it once all is well"
   mkdir -p "$NINJARR_DATA"
   tar -C "$NINJARR_DATA" -xzf "$file" ./appdata ./library 2>>"$LOG" || tar -C "$NINJARR_DATA" -xzf "$file" ./appdata \
-    || die "unpacking the backup failed — see $LOG"
-  ok "app data restored from $(basename "$file")"
+    || { rm -f "$dec"; die "unpacking the backup failed — see $LOG"; }
+  rm -f "$dec"
+  ok "app data restored from $(basename "$orig")"
 }
 
 # Nightly backup at about 04:30, as a systemd timer (BACKUP_SCHEDULE='off' to skip)
