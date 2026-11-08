@@ -19,7 +19,7 @@
 #   ./bootstrap.sh down         stop the stack (data stays)
 set -Eeuo pipefail
 
-NINJARR_VERSION="1.1.3"
+NINJARR_VERSION="1.1.4"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${NINJARR_ENV:-$ROOT/ninjarr.env}"
 LOG="$ROOT/.ninjarr.log"
