@@ -14,6 +14,7 @@
 #                               (F.gpg, a copy from Google Drive, asks for its passphrase)
 #   ./bootstrap.sh drive-setup  also copy every backup, encrypted, to your Google Drive
 #   ./bootstrap.sh import F     one-off import of an older stack (file from migrate/export-legacy.sh)
+#   ./bootstrap.sh check-files  replace episodes/movies that stop early (--list: only show them)
 #   ./bootstrap.sh reboot       restart the VM, e.g. after a security update that needs it
 #   ./bootstrap.sh try-version APP VERSION   try a newer app version; rolled back if the check fails
 #   ./bootstrap.sh revert-version APP        back to the version and data from before the try
@@ -21,7 +22,7 @@
 #   ./bootstrap.sh down         stop the stack (data stays)
 set -Eeuo pipefail
 
-NINJARR_VERSION="1.2.3"
+NINJARR_VERSION="1.3.0"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${NINJARR_ENV:-$ROOT/ninjarr.env}"
 LOG="$ROOT/.ninjarr.log"
@@ -55,6 +56,8 @@ STEP_TOTAL=6
 . "$ROOT/lib/osupdates.sh"
 # shellcheck source=lib/namefix.sh
 . "$ROOT/lib/namefix.sh"
+# shellcheck source=lib/cutcheck.sh
+. "$ROOT/lib/cutcheck.sh"
 # shellcheck source=lib/versions.sh
 . "$ROOT/lib/versions.sh"
 
@@ -268,8 +271,11 @@ main() {
       [[ -f "$(backup_dir)/$2" ]] || die "no such backup: $2"
       rm -f "$(backup_dir)/$2"; ok "deleted $2"; drive_forget "$2"; return 0 ;;
     host-status) # the VM's status for Dojo: updates, memory, CPU, disk (timer, every 5 minutes);
-      # then imports stuck on broken file names (lib/namefix.sh)
-      LOG=/dev/null; env_load || true; gpu_followup; host_status; namefix || true; return 0 ;;
+      # then imports stuck on broken file names (lib/namefix.sh), then files that stop early (lib/cutcheck.sh)
+      LOG=/dev/null; env_load || true; gpu_followup; host_status; namefix || true; cutcheck || true; return 0 ;;
+    check-files) # check-files [--list] — every library file for an early end, right away
+      [[ $EUID -eq 0 ]] || die "run it with sudo"
+      LOG="$ROOT/.ninjarr-jobs.log"; env_load || die "no ninjarr.env"; check_files "${2:-}"; return 0 ;;
     fix-imports) # imports stuck on broken file names, right away (Dojo's "Fix now")
       LOG="$ROOT/.ninjarr-jobs.log"; env_load || die "no ninjarr.env"; fix_imports; return 0 ;;
     reboot) # restart the VM (Dojo's "Restart now")

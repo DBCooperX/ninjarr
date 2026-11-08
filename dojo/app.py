@@ -22,7 +22,7 @@ import socket
 import ssl
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -861,6 +861,42 @@ def namefix_checks():
     return []
 
 
+def cutcheck_entries(days=7):
+    """Episodes and movies the host found stopping early and had replaced (bootstrap.sh host-status,
+    lib/cutcheck.sh), newest first: {at, app, state (replaced | manual), title, file}."""
+    out, since = [], time.time() - days * 86400
+    try:
+        lines = (STATE / "cutcheck.tsv").read_text(errors="replace").splitlines()
+    except OSError:
+        return out
+    for ln in lines:
+        p = ln.split("\t")
+        if len(p) == 5 and p[0].isdigit() and int(p[0]) >= since and p[2] in ("replaced", "manual"):
+            out.append({"at": int(p[0]), "app": p[1], "state": p[2], "title": release_title(p[3]), "file": p[4]})
+    return sorted(out, key=lambda e: -e["at"])
+
+
+def cutcheck_checks():
+    """Shown only when something happened this week: a file that stops early left for a person, or the ones replaced."""
+    es = cutcheck_entries()
+    left = [e for e in es if e["state"] == "manual"]
+    if left:
+        e = left[0]
+        App = e["app"].capitalize()
+        port = 8989 if e["app"] == "sonarr" else 7878
+        return [check("Streaming chain", "Files that stop early", "warn",
+                      f"{e['title']} stops playing after a few minutes because the copy on usenet is damaged. "
+                      f"ninjarr couldn't replace it for you: in {App}, open it, delete the file and search for another release.",
+                      {"open": port, "path": "/", "label": f"Open {App}"})]
+    done = [e for e in es if e["state"] == "replaced"]
+    if done:
+        n = len(done)
+        return [check("Streaming chain", "Files that stop early", "ok",
+                      f"{'one damaged copy' if n == 1 else f'{n} damaged copies'} replaced this week "
+                      f"(they stopped playing after a few minutes), latest: {done[0]['title']}")]
+    return []
+
+
 HEALTH_TTL = 20   # every open page and the push watcher share one result; a finished job clears it
 
 
@@ -873,6 +909,37 @@ def api_system():
     """Stats → System: the VM's own numbers (not the streaming ones)."""
     window = request.args.get("window", "24h")
     return jsonify(sysstats.page(STATE, host_status(), "7d" if window == "7d" else "24h"))
+
+
+@app.get("/api/filecheck")
+def api_filecheck():
+    """Stats → Files: the host's check for files that stop early (lib/cutcheck.sh)."""
+    try:
+        summary = json.loads((STATE / "cutcheck.json").read_text())
+    except (OSError, ValueError):
+        summary = None
+    waiting = []
+    for r in (ln.split("\t", 1) for ln in _state_lines("cutcheck.suspect")):
+        if len(r) == 2 and r[0].isdigit():
+            waiting.append({"since": int(r[0]), "file": r[1].rsplit("/", 1)[-1]})
+    days = {}
+    for r in (ln.split("\t") for ln in _state_lines("cutcheck.days")):
+        if len(r) == 3 and r[1].isdigit() and r[2].isdigit():
+            days[r[0]] = (int(r[1]), int(r[2]))
+    today = date.today()
+    span = [today - timedelta(days=i) for i in range(29, -1, -1)]
+    return jsonify(summary=summary, waiting=sorted(waiting, key=lambda w: w["since"]),
+                   events=cutcheck_entries(30),
+                   labels=[f"{d.day} {d.strftime('%b')}" for d in span],
+                   checked=[days.get(d.isoformat(), (0, 0))[0] for d in span],
+                   stopped=[days.get(d.isoformat(), (0, 0))[1] for d in span])
+
+
+def _state_lines(name):
+    try:
+        return [ln for ln in (STATE / name).read_text(errors="replace").splitlines() if ln.strip()]
+    except OSError:
+        return []
 
 
 @app.get("/api/health")
@@ -967,6 +1034,7 @@ def health_checks(env):
         app_warnings[name.capitalize()] = warnings
 
     out += namefix_checks()
+    out += cutcheck_checks()
 
     if up["prowlarr"]:
         idx = get_json("prowlarr", "/api/v1/indexer", env, []) or []
@@ -2836,6 +2904,24 @@ def watch_for_push():
                     PUSH.mark("namefix", es[0]["at"])     # first look only remembers; later ones announce
                 elif last is None:
                     PUSH.mark("namefix", 0)
+            if n % 5 == 0 and _notifier[0].wanted("broken"):
+                # a file that stopped early, replaced by the host or left to you
+                es = cutcheck_entries(1)
+                last = PUSH.seen("cutcheck", None)
+                fresh = [e for e in es if last is not None and e["at"] > last]
+                if fresh:
+                    e = fresh[0]
+                    if e["state"] == "replaced":
+                        notify("broken", "Replaced a damaged copy",
+                               f"{e['title']} stopped playing after a few minutes. {e['app'].capitalize()} is getting another copy.",
+                               "/#home", tag="cutcheck")
+                    else:
+                        notify("broken", "A file needs you", f"{e['title']} stops playing early. Home has what to do.",
+                               "/#home", tag="cutcheck")
+                if es and (last is None or es[0]["at"] > last):
+                    PUSH.mark("cutcheck", es[0]["at"])
+                elif last is None:
+                    PUSH.mark("cutcheck", 0)
             if n % 15 == 0:
                 backups = list_backups(env)
                 if backups and env.get("BACKUP_SCHEDULE", "daily") != "off":

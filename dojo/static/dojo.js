@@ -504,7 +504,7 @@ async function pageStats() {
   S.win = pref("period.stats", "7d");
   if (!["24h", "7d", "30d", "90d", "all"].includes(S.win)) S.win = "7d";
   S.swin = pref("period.system", "24h") === "7d" ? "7d" : "24h";
-  const tabs = [["watching", "Watching"], ["history", "History"], ["timeline", "Timeline"]];
+  const tabs = [["watching", "Watching"], ["history", "History"], ["timeline", "Timeline"], ["files", "Files"]];
   const tab = ([k, n]) => `<button data-stab="${k}" aria-pressed="${S.stab === k}">${n}</button>`;
   const head = () => {
     const period = S.stab === "watching" && (W.view === "stats" || W.view === "person");
@@ -515,20 +515,20 @@ async function pageStats() {
       ${S.stab === "system" ? `<div class="seg" role="group" aria-label="Period">${["24h", "7d"].map(x => `<button data-sw="${x}" aria-pressed="${x === S.swin}">${x}</button>`).join("")}</div>` : ""}</div>`;
   };
   const bindHead = () => {
-    el.querySelectorAll("[data-stab]").forEach(b => b.onclick = () => { S.stab = b.dataset.stab; if (!["timeline", "system"].includes(S.stab)) W.view = S.stab === "history" ? "history" : "stats"; pageStats(); });
+    el.querySelectorAll("[data-stab]").forEach(b => b.onclick = () => { S.stab = b.dataset.stab; if (!["timeline", "system", "files"].includes(S.stab)) W.view = S.stab === "history" ? "history" : "stats"; pageStats(); });
     el.querySelectorAll("[data-w]").forEach(b => b.onclick = () => { setPref("period.stats", b.dataset.w); pageStats(); });
     el.querySelectorAll("[data-sw]").forEach(b => b.onclick = () => { setPref("period.system", b.dataset.sw); pageStats(); });
   };
   S.timers.forEach(clearInterval); S.timers = [];
   el.innerHTML = head() + `<div class="sk-stack">${sk(76)}${sk(30, "45%")}${sk(140)}${sk(120)}</div>`; bindHead();
   const load = async () => {
-    if (!["timeline", "system"].includes(S.stab)) S.stab = W.view === "history" ? "history" : W.view === "stats" ? "watching" : S.stab;
-    const html = S.stab === "timeline" ? await timeline() : S.stab === "system" ? await systemStats() : await watching();
+    if (!["timeline", "system", "files"].includes(S.stab)) S.stab = W.view === "history" ? "history" : W.view === "stats" ? "watching" : S.stab;
+    const html = S.stab === "timeline" ? await timeline() : S.stab === "system" ? await systemStats() : S.stab === "files" ? await fileStats() : await watching();
     if (html == null) return;
     stamp();
     el.innerHTML = head() + html; bindHead();
     el.querySelectorAll("[data-tlf]").forEach(b => b.onclick = () => { S.tlf = b.dataset.tlf; load(); });
-    if (S.stab === "system") bindCharts(el);
+    if (S.stab === "system" || S.stab === "files") bindCharts(el);
     else if (S.stab !== "timeline") bindWatching(el, load);
   };
   await load();
@@ -857,6 +857,58 @@ async function systemStats() {
 
     <p class="note">Measured every 5 minutes and kept for 7 days${d.since ? `, since ${esc(when(d.since))}` : ""}. Last reading ${esc(when(d.sampled))}.</p>`;
 
+}
+
+// Stats → Files: the host's check for episodes and movies that stop playing early (lib/cutcheck.sh)
+async function fileStats() {
+  const d = await api("/api/filecheck").catch(() => null);
+  if (!d) return null;
+  const lead = `<p class="lead-s">Some copies on usenet are damaged: they play for a few minutes, then jump to the end. In the background, ninjarr reads a little at the start, middle and end of every episode and movie to find them. A copy that stops early is blocklisted in Sonarr or Radarr, which then gets another one.</p>`;
+  const m = d.summary;
+  if (!m) return lead + `<div class="empty"><h3 class="sub">No check yet</h3><p>The first files are checked within 5 minutes of an update.</p></div>`;
+  const lib = m.library, done = Math.min(m.checked, lib), pct = lib ? Math.round(100 * done / lib) : 100;
+  const left = Math.max(0, lib - done), hours = Math.ceil(left / m.per_run * 5 / 60);
+  const ev = d.events, rep = ev.filter(e => e.state === "replaced"), man = ev.filter(e => e.state === "manual");
+  const releases = new Set(rep.map(e => e.title)).size;
+  const brake = m.brake_at && Date.now() / 1000 - m.brake_at < 7 * 86400;
+  const App = a => a === "radarr" ? "Radarr" : "Sonarr";
+  const what = e => e.state === "replaced" ? `Blocklisted; ${App(e.app)} looks for another copy`
+    : `<span class="meh">Needs you: in ${App(e.app)}, delete it and search again</span>`;
+  // a season pack's episodes on one row
+  const rows = [];
+  for (const e of ev) {
+    const r = rows.find(x => x.title === e.title && x.state === e.state && Math.abs(x.at - e.at) < 86400);
+    if (r) r.files.push(e.file); else rows.push({ ...e, files: [e.file] });
+  }
+  return lead + `
+    <div class="now">
+      <div><b>${pct}%</b><span>of ${plural(lib, "file")} checked in the last 30 days${left ? ` · the rest in about ${hours < 1 ? "an hour" : plural(hours, "hour")}` : ""}</span></div>
+      <div><b>${rep.length}</b><span>${rep.length === 1 ? "copy" : "copies"} that stopped early replaced in 30 days${rep.length ? ` · from ${plural(releases, "release")}` : ""}</span></div>
+      <div><b class="${m.waiting ? "meh" : ""}">${m.waiting}</b><span>stopped early once, checked again before anything is replaced</span></div>
+      ${man.length ? `<div><b class="meh">${man.length}</b><span>need you: see the list below</span></div>` : ""}
+    </div>
+    <div class="wfacts">
+      <span>Last check ${esc(when(m.at))}: ${m.pass.files ? `${plural(m.pass.files, "file")} in ${m.pass.seconds} s${m.pass.stopped ? `, <b>${m.pass.stopped}</b> stopped early` : ""}` : "nothing due, every file was checked lately"}. Every 5 minutes up to ${m.per_run} files, each one again after 30 days</span>
+      ${m.unreadable ? `<span>${plural(m.unreadable, "file")} couldn't be read at the last try (AIOStreams busy or the release gone); they're tried again in a day</span>` : ""}
+      <span>At most ${plural(m.max_day, "release")} replaced a day (a season pack counts as one)</span>
+      ${brake ? `<span class="meh">On ${esc(when(m.brake_at))} files from many releases stopped early at once. That looks like AIOStreams trouble, not damaged copies, so nothing was replaced</span>` : ""}
+    </div>
+
+    <div class="wchap"><h2 class="chap">Last 30 days</h2></div>
+    <div class="wgrid">
+      <div><h3 class="sub">Files checked</h3><div class="panel wchart">${colChart({ labels: d.labels, height: 150, every: 5, series: [{ name: "Checked", color: "var(--s1)", values: d.checked }] })}<p class="cap">How many files were read each day.</p></div></div>
+      <div><h3 class="sub">Stopped early</h3><div class="panel wchart">${colChart({ labels: d.labels, height: 150, every: 5, series: [{ name: "Stopped early", color: "var(--s2)", values: d.stopped }] })}<p class="cap">Files that stopped early on their first check each day.</p></div></div>
+    </div>
+
+    ${d.waiting.length ? `<div class="wchap"><h2 class="chap">Waiting for a second check</h2></div>
+    <p class="lead-s">These stopped early once. If they still do 10 minutes later, they're replaced.</p>
+    <div class="tablewrap"><table class="ptable"><thead><tr><th>File</th><th>First stopped early</th></tr></thead><tbody>
+      ${d.waiting.map(w => `<tr><td>${esc(w.file)}</td><td class="muted">${esc(when(w.since))}</td></tr>`).join("")}</tbody></table></div>` : ""}
+
+    <div class="wchap"><h2 class="chap">Replaced</h2></div>
+    ${rows.length ? `<div class="tablewrap"><table class="ptable"><thead><tr><th>When</th><th>Release</th><th>Files</th><th>What happened</th></tr></thead><tbody>
+      ${rows.map(e => `<tr><td class="muted">${esc(when(e.at))}</td><td>${esc(e.title)}</td><td class="muted small" title="${esc(e.files.join("\n"))}">${e.files.length === 1 ? esc(e.files[0]) : plural(e.files.length, "file")}</td><td>${what(e)}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="lead-s">Nothing in the last 30 days.</p>`}`;
 }
 
 async function watchStats() {
