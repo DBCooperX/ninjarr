@@ -10,7 +10,10 @@
 # replaced: its release is marked failed in Sonarr/Radarr (which blocklists it), the file leaves
 # the library and a search for another release starts. Every file is looked at again after 30 days.
 #
-# .state/cutcheck.checked  at<TAB>ok|unreadable<TAB>path   (library links looked at; unreadable: again in a day)
+# .state/cutcheck.checked  at<TAB>ok|unreadable|replaced|manual<TAB>path<TAB>target
+#                          (library links looked at, with where each pointed: a link that points
+#                          somewhere else now — a replaced file under the same name — is looked at
+#                          again; unreadable: again in a day)
 # .state/cutcheck.suspect  first-at<TAB>path   (stopped early once, looked at again before replacing)
 # .state/cutcheck.failed   app grabId   (grabs marked failed, so a season pack is marked once)
 # .state/cutcheck.tsv      at<TAB>app<TAB>replaced|manual<TAB>title<TAB>file   (for Dojo, 30 days)
@@ -110,17 +113,18 @@ cut_replace() {
 
 # cut_suspects — looks again at the files that stopped early once; replaces the ones that still do
 cut_suspects() {
-  local sus="$ROOT/.state/cutcheck.suspect" chk="$ROOT/.state/cutcheck.checked" now first link f r out state title app
+  local sus="$ROOT/.state/cutcheck.suspect" chk="$ROOT/.state/cutcheck.checked" now first link f r out state title app tgt
   [[ -s "$sus" ]] || return 0
   now=$(date +%s)
   local keep="" done_=""
   while IFS=$'\t' read -r first link <&3; do
     [[ -n "$link" && -L "$link" ]] || continue
     f=$(cut_target "$link") || continue
+    tgt=$(readlink "$link")
     if (( now - first < CUTCHECK_CONFIRM )); then keep+="$first"$'\t'"$link"$'\n'; continue; fi
     r=0; cut_probe "$f" || r=$?
     case $r in
-      0) done_+="$now"$'\t'ok$'\t'"$link"$'\n'; cut_say "${link##*/}: plays to the end now" ok ;;
+      0) done_+="$now"$'\t'ok$'\t'"$link"$'\t'"$tgt"$'\n'; cut_say "${link##*/}: plays to the end now" ok ;;
       2) keep+="$first"$'\t'"$link"$'\n' ;;
       1)
         if [[ -n "${CUT_DRYRUN:-}" ]]; then cut_say "${link##*/}: stops early — would be replaced" warn; keep+="$first"$'\t'"$link"$'\n'; continue; fi
@@ -129,7 +133,8 @@ cut_suspects() {
         fi
         out=$(cut_replace "$link") || { keep+="$first"$'\t'"$link"$'\n'; continue; }
         IFS=$'\t' read -r state title app <<<"$out"
-        done_+="$now"$'\t'ok$'\t'"$link"$'\n'
+        # under this target only: the copy that replaces it comes under the same name, and is looked at
+        done_+="$now"$'\t'"$state"$'\t'"$link"$'\t'"$tgt"$'\n'
         case $state in
           replaced) cut_log "$app" replaced "$title" "${link##*/}"; cut_say "${title}: stops early — blocklisted, ${app^} searches for another release" ok ;;
           manual)   cut_log "$app" manual "$title" "${link##*/}"; cut_say "${title}: stops early, but ${app^} doesn't know which download it came from — replace it there" warn ;;
@@ -148,23 +153,23 @@ cut_scan() {
   local -A releases=()
   now=$(date +%s); start=$SECONDS
   touch "$chk" "$sus"
-  while IFS= read -r link <&3; do
+  while IFS=$'\t' read -r link tgt <&3; do
     (( probed < CUTCHECK_PER_RUN && SECONDS - start < CUTCHECK_SECONDS )) || break
     is_video "${link##*/}" || continue
     f=$(cut_target "$link") || continue
     probed=$((probed + 1))
     r=0; cut_probe "$f" || r=$?
     case $r in
-      0) new_chk+="$now"$'\t'ok$'\t'"$link"$'\n' ;;
+      0) new_chk+="$now"$'\t'ok$'\t'"$link"$'\t'"$tgt"$'\n' ;;
       1) cuts=$((cuts + 1)); rel=${f#*/by-id/}; releases[${rel%%/*}]=1; new_sus+="$now"$'\t'"$link"$'\n'; cut_say "${link##*/}: stops early" warn ;;
-      2) new_chk+="$now"$'\t'unreadable$'\t'"$link"$'\n' ;;   # again in a day
+      2) new_chk+="$now"$'\t'unreadable$'\t'"$link"$'\t'"$tgt"$'\n' ;;   # again in a day
     esac
-  done 3< <(find "$NINJARR_DATA/library/tv" "$NINJARR_DATA/library/movies" -type l -printf '%T@\t%p\n' 2>/dev/null \
+  done 3< <(find "$NINJARR_DATA/library/tv" "$NINJARR_DATA/library/movies" -type l -printf '%T@\t%p\t%l\n' 2>/dev/null \
              | sort -rn | cut -f2- \
              | awk -F'\t' -v c="$((now - ${CUTCHECK_SKIP:-$CUTCHECK_AGAIN}))" -v d="$((now - ${CUTCHECK_SKIP:-86400}))" -v ck="$chk" -v sk="$sus" '
-                 FILENAME == ck { if (($2 == "ok" && $1 >= c) || ($2 == "unreadable" && $1 >= d)) seen[$3] = 1; next }
-                 FILENAME == sk { seen[$2] = 1; next }
-                 !($0 in seen)' "$chk" "$sus" -)
+                 FILENAME == ck { if (($2 != "unreadable" && $1 >= c) || ($2 == "unreadable" && $1 >= d)) seen[$3 "\t" $4] = 1; next }
+                 FILENAME == sk { sus[$2] = 1; next }
+                 !($0 in seen) && !($1 in sus)' "$chk" "$sus" -)
   # many releases at once is AIOStreams having trouble, not that many damaged ones: nothing is kept
   # (a season pack is one release, however many of its episodes stop early)
   local brake=0
@@ -177,7 +182,7 @@ cut_scan() {
     printf '%s' "$new_sus" >>"$sus"
     # only the newest look per file, none older than 30 days
     { cat "$chk"; printf '%s' "$new_chk"; } \
-      | awk -F'\t' -v c="$((now - CUTCHECK_AGAIN))" '$1 >= c { last[$3] = $1 "\t" $2 } END { for (p in last) print last[p] "\t" p }' >"$chk.tmp"
+      | awk -F'\t' -v c="$((now - CUTCHECK_AGAIN))" '$1 >= c && NF >= 4 { last[$3 "\t" $4] = $1 "\t" $2 } END { for (p in last) print last[p] "\t" p }' >"$chk.tmp"
     mv -f "$chk.tmp" "$chk"
     cut_days "$probed" "$cuts"
   fi
@@ -201,7 +206,9 @@ cut_summary() {
   now=$(date +%s)
   total=$(find "$NINJARR_DATA/library/tv" "$NINJARR_DATA/library/movies" -type l 2>/dev/null \
             | grep -Eic '\.(mkv|mp4|m4v|avi|ts|m2ts|wmv|mov)$' || true)
-  ok=$(awk -F'\t' '$2 == "ok"' "$chk" 2>/dev/null | wc -l)
+  # looked at and fine, as each link points now
+  ok=$(find "$NINJARR_DATA/library/tv" "$NINJARR_DATA/library/movies" -type l -printf '%p\t%l\n' 2>/dev/null \
+         | awk -F'\t' -v ck="$chk" 'FILENAME == ck { if ($2 != "unreadable") good[$3 "\t" $4] = 1; next } ($0 in good)' "$chk" - | wc -l)
   bad=$(awk -F'\t' -v d="$((now - 86400))" '$2 == "unreadable" && $1 >= d' "$chk" 2>/dev/null | wc -l)
   waiting=$(grep -c . "$sus" 2>/dev/null || true)
   brake_at=$(jq -r '.brake_at // 0' "$f" 2>/dev/null || echo 0)
