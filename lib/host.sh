@@ -230,12 +230,13 @@ write_aiostreams_env() {
 }
 
 write_caddyfile() {
-  local f="$ROOT/.state/caddy/Caddyfile"
+  local f="$ROOT/.state/caddy/Caddyfile" names
   if [[ -z "${DOMAIN:-}" ]]; then
     printf '# no domain configured — Caddy is not started\n' >"$f"
     return 0
   fi
-  cat >"$f" <<EOF
+  names="emby.$DOMAIN, request.$DOMAIN, stream.$DOMAIN"
+  cat >"$f.tmp" <<EOF
 {
 	email $ACME_EMAIL
 }
@@ -255,7 +256,7 @@ EOF
   if [[ "${DOJO_HTTPS:-no}" == yes ]]; then
     # Dojo can rebuild the stack: over HTTPS for the installed phone app, but only for devices on
     # the home network. A request from the internet arrives with its public address and is refused.
-    cat >>"$f" <<EOF
+    cat >>"$f.tmp" <<EOF
 
 dojo.$DOMAIN {
 	@outside not remote_ip private_ranges
@@ -263,10 +264,50 @@ dojo.$DOMAIN {
 	reverse_proxy dojo:5000
 }
 EOF
-    ok "Caddy: emby.$DOMAIN, request.$DOMAIN, stream.$DOMAIN, dojo.$DOMAIN (home network only)"
-  else
-    ok "Caddy: emby.$DOMAIN, request.$DOMAIN, stream.$DOMAIN"
+    names+=", dojo.$DOMAIN (home network only)"
   fi
+  caddy_extra_sites >>"$f.tmp"
+  # stdout is the Caddyfile, so the names it added come back in a file
+  [[ -s "$f.tmp.names" ]] && names+=", $(<"$f.tmp.names")"
+  rm -f "$f.tmp.names"
+  mv "$f.tmp" "$f"
+  ok "Caddy: $names"
+}
+
+# Other web apps on the network, from PROXY_SITES (Dojo → Settings → Other web apps):
+# [{"host":"wiki.example.org","target":"192.168.1.50:8080","home_only":false}, …]
+# Dojo proposes this list, so every value is checked against a strict pattern before it goes into
+# the Caddyfile; anything else is left out with a warning. The names it added go to $f.tmp.names.
+caddy_extra_sites() {
+  local host target home proto addr port added=""
+  local seen=" emby.$DOMAIN request.$DOMAIN stream.$DOMAIN dojo.$DOMAIN "
+  local name_re='^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'
+  local target_re='^(https?://)?([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?):([0-9]{1,5})$'
+  if ! jq -e 'type == "array"' <<<"${PROXY_SITES:-[]}" >/dev/null 2>&1; then
+    warn "PROXY_SITES in ninjarr.env isn't a list — other web apps left out" >&2; return 0
+  fi
+  while IFS=$'\t' read -r host target home; do
+    if ! [[ "$host" =~ $name_re ]]; then warn "other web app '$host': not a web address — left out" >&2; continue; fi
+    if [[ "$seen" == *" $host "* ]]; then warn "other web app $host: that name is already in use — left out" >&2; continue; fi
+    port=0; [[ "$target" =~ $target_re ]] && port=$((10#${BASH_REMATCH[4]}))
+    if (( port < 1 || port > 65535 )); then warn "other web app $host: '$target' isn't address:port — left out" >&2; continue; fi
+    proto=${BASH_REMATCH[1]}; addr=${target#"$proto"}
+    seen+="$host "
+    printf '\n%s {\n' "$host"
+    if [[ "$home" == true ]]; then
+      printf '\t@outside not remote_ip private_ranges\n\trespond @outside "This app only answers on the home network." 403\n'
+    fi
+    if [[ "$proto" == https:// ]]; then
+      # apps at home that speak HTTPS mostly carry a self-made certificate, so it isn't checked
+      printf '\treverse_proxy https://%s {\n\t\ttransport http {\n\t\t\ttls_insecure_skip_verify\n\t\t}\n\t}\n' "$addr"
+    else
+      printf '\treverse_proxy %s\n' "$addr"
+    fi
+    printf '}\n'
+    added+="${added:+, }$host"; [[ "$home" == true ]] && added+=" (home network only)"
+  done < <(jq -r '.[] | select(type == "object")
+    | [(.host // "" | tostring | ascii_downcase), (.target // "" | tostring), (.home_only == true | tostring)] | @tsv' <<<"${PROXY_SITES:-[]}")
+  printf '%s' "$added" >"$ROOT/.state/caddy/Caddyfile.tmp.names"
 }
 
 # ═══════════════════════════════════════════════ GPU (hardware transcoding in Emby)

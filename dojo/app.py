@@ -22,6 +22,7 @@ import socket
 import ssl
 import threading
 import time
+import warnings
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
@@ -93,7 +94,7 @@ PENDING = DOJO_STATE / "ninjarr.env"
 DOJO_KEYS = {"TZ", "ADMIN_USER", "ADMIN_PASSWORD", "USENET_PROVIDERS", "INDEXERS", "PREFERRED_LANGUAGE", "REQUIRE_LANGUAGE",
              "LANGUAGE_WAIT_MINUTES", "OPENSUBTITLES_USER", "OPENSUBTITLES_PASS", "IPTV", "IPTV_TYPE", "IPTV_URL", "IPTV_USER",
              "IPTV_PASS", "IPTV_EPG_URL", "IPTV_MAX_STREAMS", "DISCORD_WEBHOOK", "DOMAIN", "DOJO_HTTPS", "AUTO_REBOOT",
-             "ACME_EMAIL", "BACKUP_KEEP", "BACKUP_SCHEDULE", "DISPATCHARR_API_KEY"}
+             "ACME_EMAIL", "BACKUP_KEEP", "BACKUP_SCHEDULE", "DISPATCHARR_API_KEY", "PROXY_SITES"}
 
 
 def env_parse(f):
@@ -488,6 +489,49 @@ def domain_test(domain, dojo=False):
     return ok, "; ".join(out)
 
 
+# Other web apps through Caddy (PROXY_SITES). The host checks the same shapes again before it
+# writes them into the Caddyfile (lib/host.sh: caddy_extra_sites).
+SITE_NAME = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+")
+SITE_TARGET = re.compile(r"(https?://)?([A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?):([0-9]{1,5})")
+
+
+def site_target(raw):
+    """"http://192.168.1.50:8080/" → "192.168.1.50:8080"; https:// stays. None when it isn't address:port."""
+    t = (raw or "").strip().rstrip("/")
+    if t.lower().startswith("http://"):
+        t = t[7:]
+    elif t.lower().startswith("https://"):
+        t = "https://" + t[8:]
+    m = SITE_TARGET.fullmatch(t)
+    return t if m and 1 <= int(m.group(4)) <= 65535 else None
+
+
+def site_test(host, target):
+    host = re.sub(r"^https?://", "", (host or "").strip().lower()).strip("/")
+    t = site_target(target)
+    if not SITE_NAME.fullmatch(host):
+        return False, "Enter the web address first, e.g. wiki.example.org."
+    if not t:
+        return False, "Where it runs needs an address and a port, e.g. 192.168.1.50:8080."
+    out, ok = [], True
+    try:
+        ips = sorted({a[4][0] for a in socket.getaddrinfo(host, 443)})
+        out.append(f"{host} → {', '.join(ips)}")
+    except OSError:
+        ok = False
+        out.append(f"{host} doesn't resolve yet")
+    url = t if t.startswith("https://") else f"http://{t}"
+    try:
+        with warnings.catch_warnings():   # an app at home with its own certificate is fine here
+            warnings.simplefilter("ignore")
+            r = requests.get(url, timeout=5, verify=False, allow_redirects=False)
+        out.append(f"the app answers (HTTP {r.status_code})")
+    except requests.RequestException:
+        ok = False
+        out.append(f"nothing answers at {t}")
+    return ok, "; ".join(out)
+
+
 @app.post("/api/dispatcharr/connect")
 def api_dispatcharr_connect():
     b = request.get_json(silent=True) or {}
@@ -533,6 +577,9 @@ def api_test(kind):
         ok, msg, extra = iptv_test(b.get("type", ""), b.get("url", ""), b.get("user", ""),
                                    b.get("password") or env.get("IPTV_PASS", ""))
         return jsonify(ok=ok, message=msg, **extra)
+    if kind == "site":
+        ok, msg = site_test(b.get("host", ""), b.get("target", ""))
+        return jsonify(ok=ok, message=msg)
     if kind == "domain":
         ok, msg = domain_test(b.get("domain", "").strip(), bool(b.get("dojo_https")))
         return jsonify(ok=ok, message=msg)
@@ -597,7 +644,17 @@ def settings_view(env):
         "dojo_https": env.get("DOJO_HTTPS", "no") == "yes",
         "backup_keep": int(env.get("BACKUP_KEEP") or 7),
         "backup_schedule": env.get("BACKUP_SCHEDULE", "daily"),
+        "sites": [{"host": x.get("host", ""), "target": x.get("target", ""), "home_only": x.get("home_only") is True}
+                  for x in proxy_sites(env)],
     }
+
+
+def proxy_sites(env):
+    try:
+        sites = json.loads(env.get("PROXY_SITES") or "[]")
+    except ValueError:
+        return []
+    return [x for x in sites if isinstance(x, dict)] if isinstance(sites, list) else []
 
 
 @app.get("/api/settings")
@@ -687,6 +744,28 @@ def build_updates(b, env):
     u["ACME_EMAIL"] = (b.get("acme_email") or "").strip() if domain else ""
     if domain and "@" not in u["ACME_EMAIL"]:
         raise ValueError("with a domain, an e-mail for Let's Encrypt is needed")
+
+    if "sites" in b:
+        taken = {f"{x}.{domain}" for x in ("emby", "request", "stream", "dojo")}
+        sites = []
+        for x in b.get("sites") or []:
+            host = re.sub(r"^https?://", "", (x.get("host") or "").strip().lower()).strip("/")
+            if not host and not (x.get("target") or "").strip():
+                continue                        # an empty row
+            if not SITE_NAME.fullmatch(host):
+                raise ValueError(f"other web apps: '{host or '(empty)'}' isn't a web address (e.g. wiki.example.org)")
+            if host in taken:
+                raise ValueError(f"other web apps: {host} is already in use")
+            target = site_target(x.get("target"))
+            if not target:
+                raise ValueError(f"other web apps: {host} needs where it runs as address:port (e.g. 192.168.1.50:8080)")
+            if re.match(r"(https://)?(localhost|127\.)", target):
+                raise ValueError(f"other web apps: {host}: localhost would be Caddy itself. Use the machine's address on your network")
+            taken.add(host)
+            sites.append({"host": host, "target": target, "home_only": bool(x.get("home_only"))})
+        if sites and not domain:
+            raise ValueError("other web apps need a domain under Away from home")
+        u["PROXY_SITES"] = json.dumps(sites, separators=(",", ":"))
 
     u["BACKUP_KEEP"] = str(min(60, max(1, int(b.get("backup_keep") or 7))))
     u["BACKUP_SCHEDULE"] = "off" if b.get("backup_schedule") == "off" else "daily"

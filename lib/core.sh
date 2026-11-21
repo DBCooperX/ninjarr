@@ -101,14 +101,14 @@ env_load() {
 DOJO_KEYS=(TZ ADMIN_USER ADMIN_PASSWORD USENET_PROVIDERS INDEXERS PREFERRED_LANGUAGE REQUIRE_LANGUAGE
   LANGUAGE_WAIT_MINUTES OPENSUBTITLES_USER OPENSUBTITLES_PASS IPTV IPTV_TYPE IPTV_URL IPTV_USER IPTV_PASS
   IPTV_EPG_URL IPTV_MAX_STREAMS DISCORD_WEBHOOK DOMAIN DOJO_HTTPS AUTO_REBOOT ACME_EMAIL BACKUP_KEEP
-  BACKUP_SCHEDULE DISPATCHARR_API_KEY)
+  BACKUP_SCHEDULE DISPATCHARR_API_KEY PROXY_SITES)
 dojo_value_ok() { # dojo_value_ok KEY VALUE
   case "$1" in
     REQUIRE_LANGUAGE|IPTV|DOJO_HTTPS|AUTO_REBOOT) [[ "$2" =~ ^(yes|no)$ ]] ;;
     LANGUAGE_WAIT_MINUTES|IPTV_MAX_STREAMS|BACKUP_KEEP) [[ "$2" =~ ^[0-9]{1,5}$ ]] ;;
     BACKUP_SCHEDULE) [[ "$2" =~ ^(daily|off)$ ]] ;;
     IPTV_TYPE) [[ "$2" =~ ^(xtream|m3u|)$ ]] ;;
-    USENET_PROVIDERS|INDEXERS) jq -e 'type == "array"' <<<"$2" >/dev/null 2>&1 ;;
+    USENET_PROVIDERS|INDEXERS|PROXY_SITES) jq -e 'type == "array"' <<<"$2" >/dev/null 2>&1 ;;
     DOMAIN) [[ -z "$2" || "$2" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] ;;
     TZ) [[ "$2" =~ ^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)*$ ]] ;;
     ADMIN_USER) [[ "$2" =~ ^[A-Za-z0-9._-]{1,64}$ ]] ;;

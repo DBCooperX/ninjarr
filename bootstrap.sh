@@ -22,7 +22,7 @@
 #   ./bootstrap.sh down         stop the stack (data stays)
 set -Eeuo pipefail
 
-NINJARR_VERSION="1.3.6"
+NINJARR_VERSION="1.4.0"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${NINJARR_ENV:-$ROOT/ninjarr.env}"
 LOG="$ROOT/.ninjarr.log"
@@ -180,6 +180,8 @@ summary() {
     local names="emby / request / stream"; [[ "${DOJO_HTTPS:-no}" == yes ]] && names+=" / dojo"
     printf '   %s•%s DNS: %s .%s → your public IP, ports 80+443 forwarded here;\n' "$DR" "$X" "$names" "$DOMAIN"
     printf '     %sat home, rewrite the same names to %s%s\n' "$DD" "$(host_ip)" "$X"
+    local extra; extra=$(jq -r '[.[]? | objects | .host // empty] | join(", ")' <<<"${PROXY_SITES:-[]}" 2>/dev/null) || extra=""
+    [[ -z "$extra" ]] || printf '   %s•%s other web apps: %s → the same public IP\n' "$DR" "$X" "$extra"
   fi
 
   # width counted on the plain text: under a C locale ${#s} counts ✦ as 3 bytes, not 1 column

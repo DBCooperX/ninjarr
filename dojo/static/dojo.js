@@ -1272,6 +1272,14 @@ function indexerEntry(x = {}, open = true) {
     <label class="field"><span>API key</span><input type="password" name="apikey" placeholder="${x.has_key ? SAVED : ""}" autocomplete="new-password"></label>
     <button type="button" class="btn" data-test="indexer">Test API key</button><p class="result"></p></div></details>`;
 }
+function siteEntry(x = {}, open = true) {
+  return `<details class="entry fe" data-site ${open ? "open" : ""}>${foldHead()}<div class="fe-body">
+    <div class="row"><label class="field"><span>Web address</span><input type="text" name="host" value="${esc(x.host || "")}" placeholder="wiki.example.org" autocomplete="off"></label>
+      <label class="field"><span>Where it runs</span><input type="text" name="target" value="${esc(x.target || "")}" placeholder="192.168.1.50:8080" autocomplete="off"></label></div>
+    <p class="small muted" style="margin:-6px 0 14px">Where it runs: the machine's address on your network and the app's port. Put https:// in front if the app only answers over HTTPS.</p>
+    <label class="check"><input type="checkbox" name="home_only" ${x.home_only ? "checked" : ""}><span>Home network only <span class="muted small">· visits from the internet are refused</span></span></label>
+    <button type="button" class="btn" data-test="site">Check</button><p class="result"></p></div></details>`;
+}
 // a provider's role: backup, or main — together with the other main ones, or its place in the order
 function roleBadge(box) {
   const form = box.closest("form") || document;
@@ -1291,6 +1299,9 @@ function entrySum(box) {
     const host = v("host").trim(), x = providerFor(host), backup = $("[name=isBackup]", box).checked;
     $("[data-ename]", box).innerHTML = `${esc((x && x.name) || host || "New provider")} ${roleBadge(box)}`;
     $("[data-esum]", box).textContent = host ? `${host} · ${v("maxConnections") || "?"} connections` : "Not filled in yet";
+  } else if (box.matches("[data-site]")) {
+    $("[data-ename]", box).textContent = v("host").trim() || "New web app";
+    $("[data-esum]", box).textContent = v("target").trim() ? `→ ${v("target").trim()}${$("[name=home_only]", box).checked ? " · home network only" : ""}` : "Not filled in yet";
   } else {
     let host = ""; try { host = new URL(v("url")).host; } catch (_) {}
     $("[data-ename]", box).textContent = v("name").trim() || host || "New indexer";
@@ -1376,6 +1387,9 @@ function settingsForm(s) {
       <label class="check"><input type="checkbox" name="dojo_https" ${s.dojo_https ? "checked" : ""}><span>Dojo too, at dojo.<i>domain</i> — home network only</span></label>
       <p class="small muted" style="margin:-6px 0 14px">An HTTPS address for Dojo, so phones can install it as a full app. It answers only devices on your home network; from the internet it refuses. It needs the same public DNS record as the others (for its certificate) and, at home, a rewrite of the name to this machine.</p>
       <button type="button" class="btn" data-test="domain">Check DNS</button><p class="result"></p>` },
+    sites: { title: "Other web apps", lead: "Reach other web apps in your home, also on other machines, at their own address on your domain.",
+      more: "Caddy, which already brings Emby and Seerr to your domain, passes the visits on to the app, with HTTPS. Point each name at your home like emby. and the others; the certificate comes by itself. Needs a domain under Away from home.",
+      body: `<div id="sites">${(s.sites || []).map(x => siteEntry(x, false)).join("")}</div><div class="adder"><button type="button" class="btn" id="addsite">Add a web app</button></div>` },
     updates: { title: "Security updates", lead: "The server's operating system (Debian) installs security fixes by itself every night.",
       more: "Only security fixes, from Debian. Docker is left out: it updates together with ninjarr, because updating it restarts every container. Some fixes (the Linux kernel) only take effect after a restart.",
       body: `<label class="check"><input type="checkbox" name="auto_reboot" ${s.auto_reboot ? "checked" : ""}><span>Restart the server at about 04:45 when an update needs it</span></label>
@@ -1404,6 +1418,7 @@ function bindForm(root) {
   };
   if ($("[name=language]", root)) { $("[name=language]", root).addEventListener("change", langSync); $("[name=require_language]", root).addEventListener("change", langSync); langSync(); }
   const addp = $("#addprov", root); if (addp) addp.onclick = () => { $("#providers", root).insertAdjacentHTML("beforeend", providerEntry({}, 1)); entrySum($("#providers", root).lastElementChild); changed(); };
+  const adds = $("#addsite", root); if (adds) adds.onclick = () => { $("#sites", root).insertAdjacentHTML("beforeend", siteEntry({})); entrySum($("#sites", root).lastElementChild); changed(); };
   const addi = $("#addidx", root); if (addi) addi.onclick = () => { $("#indexers", root).insertAdjacentHTML("beforeend", indexerEntry({})); entrySum($("#indexers", root).lastElementChild); changed(); };
   root.addEventListener("change", e => {
     const sel = e.target.closest("[data-pick]");
@@ -1428,10 +1443,10 @@ function bindForm(root) {
     root.querySelectorAll("[data-balance]").forEach(x => x.classList.toggle("hidden", main < 2));
     root.querySelectorAll("[data-provider]").forEach(entrySum);   // roles depend on all of them
   };
-  const sumOf = e => { const box = e.target.closest && e.target.closest("[data-provider], [data-indexer]"); if (box) entrySum(box); };
+  const sumOf = e => { const box = e.target.closest && e.target.closest("[data-provider], [data-indexer], [data-site]"); if (box) entrySum(box); };
   root.addEventListener("input", e => { if (e.target.name === "host") backboneNote(root); balanceSync(); sumOf(e); });
   root.addEventListener("change", e => { balanceSync(); sumOf(e); });
-  root.querySelectorAll("[data-provider], [data-indexer]").forEach(entrySum);
+  root.querySelectorAll("[data-provider], [data-indexer], [data-site]").forEach(entrySum);
   backboneNote(root); balanceSync();
   root.addEventListener("click", async e => {
     const inf = e.target.closest("[data-info]");
@@ -1458,6 +1473,7 @@ function bindForm(root) {
     if (t.dataset.test === "usenet") body = { host: v("host"), port: v("port"), tls: v("tls"), username: v("username"), password: v("password") };
     if (t.dataset.test === "indexer") body = { url: v("url"), apikey: v("apikey"), apiPath: v("apiPath") };
     if (t.dataset.test === "iptv") body = { type: v("iptv_type"), url: v("iptv_url"), user: v("iptv_user"), password: v("iptv_pass") };
+    if (t.dataset.test === "site") body = { host: v("host"), target: v("target") };
     if (t.dataset.test === "domain") body = { domain: v("domain"), dojo_https: v("dojo_https") };
     t.disabled = true; out.className = "result"; out.textContent = "Testing…";
     const r = await api(`/api/test/${t.dataset.test}`, { method: "POST", body }).catch(() => ({ ok: false }));
@@ -1475,6 +1491,7 @@ function collect(root) {
     providers: list("[data-provider]", ["host", "port", "maxConnections", "username", "password", "tls", "isBackup"]),
     usenet_balanced: v("usenet_balanced"),
     indexers: list("[data-indexer]", ["name", "url", "apikey", "preset", "apiPath"]),
+    sites: $("#sites", root) ? list("[data-site]", ["host", "target", "home_only"]) : undefined,
     language: v("language"), require_language: v("require_language"), wait_minutes: v("wait_minutes"),
     opensubtitles_user: v("opensubtitles_user"), opensubtitles_pass: v("opensubtitles_pass"),
     iptv: v("iptv"), iptv_type: v("iptv_type"), iptv_url: v("iptv_url"), iptv_user: v("iptv_user"), iptv_pass: v("iptv_pass"),
@@ -1501,11 +1518,12 @@ function summaries(c) {
     livetv: c.iptv ? `On · ${{ xtream: "Xtream Codes", m3u: "M3U playlist" }[c.iptv_type] || "managed in Dispatcharr"}` : "Off",
     notify: [S.pushOn ? "This device" : "", c.discord_webhook ? "Discord" : ""].filter(Boolean).join(" · ") || "Off",
     remote: c.domain ? esc(c.domain) : "Home network only",
+    sites: (c.sites || []).filter(x => x.host.trim()).map(x => esc(x.host.trim())).join(", ") || "None",
     backup: c.backup_schedule === "off" ? `<span class="meh">Off</span>` : `Nightly · keeps ${esc(c.backup_keep)}`,
     updates: c.auto_reboot ? "Automatic · restarts by itself at 04:45 when needed" : "Automatic · you restart when Home asks",
   };
 }
-const SECTIONS = ["usenet", "indexers", "language", "subtitles", "livetv", "remote", "notify", "backup", "updates", "tz"];
+const SECTIONS = ["usenet", "indexers", "language", "subtitles", "livetv", "remote", "sites", "notify", "backup", "updates", "tz"];
 async function pageSettings() {
   const el = $("#page");
   el.innerHTML = `<div class="sk-stack">${SECTIONS.map(() => sk(64)).join("")}</div>`;

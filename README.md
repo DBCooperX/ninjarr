@@ -111,6 +111,8 @@ Give ninjarr a domain in Dojo → Settings → Away from home. Emby, Seerr and A
 
 *Check DNS* in Settings tests it. Switch on *Dojo too* for `https://dojo.<domain>`; it still only answers devices on your home network, which is all a phone needs to install it and get notifications.
 
+**Other web apps** in your home, on this VM or another machine, can use the same Caddy: in Settings → Other web apps, enter the address (`wiki.example.org`) and where the app runs (`192.168.1.50:8080`, or `https://…` for an app that only speaks HTTPS). Give the name a DNS record like the others. *Home network only* refuses visits from the internet.
+
 <details>
 <summary>No certificate? (<code>ERR_SSL_PROTOCOL_ERROR</code>)</summary>
 
