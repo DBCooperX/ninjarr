@@ -38,7 +38,7 @@ restore_app() { # restore_app APP FILE
   old="$d.tried-$(date +%Y%m%d-%H%M%S)"
   mv "$d" "$old" || return 1
   tar -C "$NINJARR_DATA/appdata" -xzf "$2" 2>>"$LOG" || { rm -rf "$d"; mv "$old" "$d"; return 1; }
-  for p in logs log cache Backups MediaCover metadata transcoding-temp backups recordings; do
+  for p in logs log cache Backups MediaCover metadata transcoding-temp sync backups recordings; do
     [[ -e "$old/$p" && ! -e "$d/$p" ]] && mv "$old/$p" "$d/$p"
   done
   rm -rf "$old"

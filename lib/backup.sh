@@ -3,10 +3,11 @@
 # without logs, caches and anything the apps rebuild by themselves. Restoring it on a fresh VM
 # gives the same stack with the same library, history and settings.
 
-# Left out of a backup: rebuilt on their own, or only noise
+# Left out of a backup: rebuilt on their own, or only noise. emby/sync holds the converted copies
+# Emby makes for downloads to a phone or tablet (one film is several GB); Emby makes them again.
 BACKUP_EXCLUDES=(
   './*/logs' './*/log' './*/cache' './*/Backups' './*/logs.db*' './*/MediaCover'
-  './emby/transcoding-temp' './emby/metadata' './dispatcharr/backups' './dispatcharr/recordings'
+  './emby/transcoding-temp' './emby/metadata' './emby/sync' './dispatcharr/backups' './dispatcharr/recordings'
   './dojo/art' '*.pid' './*.before-import-*'
 )
 
